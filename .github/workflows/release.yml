@@ -57,15 +57,22 @@ jobs:
           cp target/release/organum-resampler${{ matrix.asset_extension }} artifacts/
           cp target/release/organum-wavtool${{ matrix.asset_extension }} artifacts/
           cp target/release/caching-tool${{ matrix.asset_extension }} artifacts/
-          
-          if [ "${{ matrix.archive_format }}" == "zip" ]; then
-            cd artifacts && zip -r ../${{ matrix.artifact_name }}.zip ./* && cd ..
-          else
-            cd artifacts && tar -czvf ../${{ matrix.artifact_name }}.tar.gz ./* && cd ..
-          fi
-          
+
+      - name: Archive (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path artifacts/* -DestinationPath ${{ matrix.artifact_name }}.zip
+          New-Item -ItemType Directory -Force final-artifact
+          Move-Item ${{ matrix.artifact_name }}.zip final-artifact/
+
+      - name: Archive (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          cd artifacts && tar -czvf ../${{ matrix.artifact_name }}.tar.gz ./* && cd ..
           mkdir -p final-artifact
-          mv ${{ matrix.artifact_name }}.* final-artifact/
+          mv ${{ matrix.artifact_name }}.tar.gz final-artifact/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
