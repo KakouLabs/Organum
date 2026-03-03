@@ -1,0 +1,100 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-C strip=debuginfo"
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: organum-windows
+            asset_extension: .exe
+            archive_format: zip
+          - os: ubuntu-latest
+            artifact_name: organum-linux
+            asset_extension: ""
+            archive_format: tar.gz
+          - os: macos-latest
+            artifact_name: organum-macos
+            asset_extension: ""
+            archive_format: tar.gz
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Build organum engine and caching-tool
+        run: cargo build --release --workspace
+
+
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp target/release/organum-resampler${{ matrix.asset_extension }} artifacts/
+          cp target/release/organum-wavtool${{ matrix.asset_extension }} artifacts/
+          cp target/release/caching-tool${{ matrix.asset_extension }} artifacts/
+          
+          if [ "${{ matrix.archive_format }}" == "zip" ]; then
+            cd artifacts && zip -r ../${{ matrix.artifact_name }}.zip ./* && cd ..
+          else
+            cd artifacts && tar -czvf ../${{ matrix.artifact_name }}.tar.gz ./* && cd ..
+          fi
+          
+          mkdir -p final-artifact
+          mv ${{ matrix.artifact_name }}.* final-artifact/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-archive
+          path: final-artifact/*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Package Release
+        run: |
+          mkdir -p release-assets
+          cp all-artifacts/*/* release-assets/
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
