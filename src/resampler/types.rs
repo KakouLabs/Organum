@@ -176,8 +176,16 @@ impl TryFrom<FeatureCacheV4Quantized> for WorldFeatures {
             );
         }
 
-        let mgc = reshape_2d(dequantize_i16(cache.mgc_scale, &cache.mgc_data), mgc_frames, mgc_dims)?;
-        let bap = reshape_2d(dequantize_i16(cache.bap_scale, &cache.bap_data), bap_frames, bap_dims)?;
+        let mgc = reshape_2d(
+            dequantize_i16(cache.mgc_scale, &cache.mgc_data),
+            mgc_frames,
+            mgc_dims,
+        )?;
+        let bap = reshape_2d(
+            dequantize_i16(cache.bap_scale, &cache.bap_data),
+            bap_frames,
+            bap_dims,
+        )?;
 
         Ok(Self {
             base_f0: cache.base_f0 as f64,
