@@ -32,7 +32,6 @@ impl<'a> LinearInterpolator<'a> {
         }
         let index = x as usize;
         let r = x - index as f64;
-        // x > 0 && x < last이므로 index는 [0, len-2] 범위
         unsafe {
             self.curve.get_unchecked(index) * (1.0 - r) + self.curve.get_unchecked(index + 1) * r
         }
@@ -40,6 +39,14 @@ impl<'a> LinearInterpolator<'a> {
 
     pub fn sample_vec(&self, xs: &[f64]) -> Vec<f64> {
         xs.par_iter().map(|&x| self.sample(x)).collect()
+    }
+
+    pub fn sample_vec_adaptive(&self, xs: &[f64]) -> Vec<f64> {
+        if xs.len() < 2048 {
+            xs.iter().map(|&x| self.sample(x)).collect()
+        } else {
+            xs.par_iter().map(|&x| self.sample(x)).collect()
+        }
     }
 }
 
@@ -61,6 +68,14 @@ impl<'a> CubicSplineInterpolator<'a> {
     pub fn sample_vec(&self, xs: &[f64]) -> Vec<f64> {
         xs.par_iter().map(|&x| self.sample(x)).collect()
     }
+
+    pub fn sample_vec_adaptive(&self, xs: &[f64]) -> Vec<f64> {
+        if xs.len() < 2048 {
+            xs.iter().map(|&x| self.sample(x)).collect()
+        } else {
+            xs.par_iter().map(|&x| self.sample(x)).collect()
+        }
+    }
 }
 
 pub fn interpolate_frames(vec_2d: &[Vec<f64>], points: &[f64]) -> Vec<Vec<f64>> {
@@ -70,29 +85,32 @@ pub fn interpolate_frames(vec_2d: &[Vec<f64>], points: &[f64]) -> Vec<Vec<f64>> 
     let n_frames = vec_2d.len();
     let n_dims = vec_2d[0].len();
 
-    points
-        .par_iter()
-        .map(|&p| {
-            let mut out_frame = Vec::with_capacity(n_dims);
-            let last = (n_frames - 1) as f64;
+    let map_point = |&p: &f64| {
+        let mut out_frame = Vec::with_capacity(n_dims);
+        let last = (n_frames - 1) as f64;
 
-            if p <= 0.0 {
-                out_frame.extend_from_slice(&vec_2d[0]);
-            } else if p >= last {
-                out_frame.extend_from_slice(&vec_2d[n_frames - 1]);
-            } else {
-                let idx = p as usize;
-                let frac = p - idx as f64;
-                let inv_frac = 1.0 - frac;
-                let frame_a = &vec_2d[idx];
-                let frame_b = &vec_2d[idx + 1];
-                for d in 0..n_dims {
-                    out_frame.push(frame_a[d] * inv_frac + frame_b[d] * frac);
-                }
+        if p <= 0.0 {
+            out_frame.extend_from_slice(&vec_2d[0]);
+        } else if p >= last {
+            out_frame.extend_from_slice(&vec_2d[n_frames - 1]);
+        } else {
+            let idx = p as usize;
+            let frac = p - idx as f64;
+            let inv_frac = 1.0 - frac;
+            let frame_a = &vec_2d[idx];
+            let frame_b = &vec_2d[idx + 1];
+            for d in 0..n_dims {
+                out_frame.push(frame_a[d] * inv_frac + frame_b[d] * frac);
             }
-            out_frame
-        })
-        .collect()
+        }
+        out_frame
+    };
+
+    if points.len() < 2048 {
+        points.iter().map(map_point).collect()
+    } else {
+        points.par_iter().map(map_point).collect()
+    }
 }
 
 pub fn to_feature_path(path: &Path, ext: &str) -> std::path::PathBuf {

@@ -12,11 +12,12 @@ pub mod types;
 pub mod utils;
 
 pub use audio::{read_audio, resample_audio, write_audio};
-pub use features::{generate_features, read_features, write_features};
+pub use features::{
+    generate_features, is_feature_cache_compatible, read_features, write_features,
+};
 pub use types::ResampleRequest;
 pub use utils::{interpolate_frames, to_feature_path, LinearInterpolator};
 
-/// WORLD feature만 추출해서 캐시에 저장. 합성은 하지 않음.
 pub fn generate_and_cache_features(
     input_path: &Path,
     config: &crate::config::OrganumConfig,
@@ -48,8 +49,8 @@ pub fn generate_and_cache_features(
     Ok(())
 }
 
-/// 캐시된 feature를 로드(없으면 추출)하고, 플래그에 따라 파라미터를 보간한 뒤 합성.
 pub fn resample(req: &ResampleRequest) -> Result<()> {
+    let start_total = Instant::now();
     let config = crate::config::global_config();
     let sample_rate = config.sample_rate;
     let frame_period = config.frame_period;
@@ -59,6 +60,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let output_path = Path::new(&req.output_file);
     let feature_path = to_feature_path(input_path, feat_ext);
 
+    let start_features = Instant::now();
     let features = if feature_path.exists() {
         match read_features(&feature_path) {
             Ok(f) => {
@@ -84,6 +86,8 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
         let _ = write_features(&feature_path, &features, config.zstd_compression_level);
         features
     };
+
+    tracing::debug!("Feature stage completed in {:?}", start_features.elapsed());
 
     let start_synthesis = Instant::now();
 
@@ -139,34 +143,40 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
         return Err(anyhow::anyhow!("Calculated render length is 0"));
     }
 
-    let t_render: Vec<f64> = (0..render_length)
-        .into_par_iter()
-        .map(|i| {
-            let t_out_sec = (i as f64) / fps;
-            let t_in_sec = if t_out_sec <= scaled_cons_sec && scaled_cons_sec > 0.0 {
-                start_sec + (t_out_sec / cons_stretch)
-            } else {
-                let vowel_time_out = t_out_sec - scaled_cons_sec;
-                let vowel_time_req = (length_req_sec - scaled_cons_sec).max(0.001);
-                let vowel_time_src = (end_sec - (start_sec + actual_cons_sec)).max(0.001);
-                (start_sec + actual_cons_sec) + vowel_time_out * (vowel_time_src / vowel_time_req)
-            };
-            t_in_sec * fps
-        })
-        .collect();
+    let t_map = |i: usize| {
+        let t_out_sec = (i as f64) / fps;
+        let t_in_sec = if t_out_sec <= scaled_cons_sec && scaled_cons_sec > 0.0 {
+            start_sec + (t_out_sec / cons_stretch)
+        } else {
+            let vowel_time_out = t_out_sec - scaled_cons_sec;
+            let vowel_time_req = (length_req_sec - scaled_cons_sec).max(0.001);
+            let vowel_time_src = (end_sec - (start_sec + actual_cons_sec)).max(0.001);
+            (start_sec + actual_cons_sec) + vowel_time_out * (vowel_time_src / vowel_time_req)
+        };
+        t_in_sec * fps
+    };
+
+    let t_render: Vec<f64> = if render_length < 2048 {
+        (0..render_length).map(t_map).collect()
+    } else {
+        (0..render_length).into_par_iter().map(t_map).collect()
+    };
 
     let f0_off_interp = utils::LinearInterpolator::new(&f0_off);
-    let f0_off_render = f0_off_interp.sample_vec(&t_render);
-    let vuv_render: Vec<bool> = t_render
-        .par_iter()
-        .map(|&t| vuv[(t.round() as usize).clamp(0, feature_length - 1)])
-        .collect();
+    let f0_off_render = f0_off_interp.sample_vec_adaptive(&t_render);
+    let vuv_map = |&t: &f64| vuv[(t.round() as usize).clamp(0, feature_length - 1)];
+    let vuv_render: Vec<bool> = if render_length < 2048 {
+        t_render.iter().map(vuv_map).collect()
+    } else {
+        t_render.par_iter().map(vuv_map).collect()
+    };
 
     let mgc_render = utils::interpolate_frames(&features.mgc, &t_render);
     let bap_render = utils::interpolate_frames(&features.bap, &t_render);
 
     let parsed_flags = flags::parse_flags(&req.flags);
 
+    let start_decode = Instant::now();
     let mut sp_render = rsworld::decode_spectral_envelope(
         &mgc_render,
         render_length as i32,
@@ -175,6 +185,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     );
     let ap_render =
         rsworld::decode_aperiodicity(&bap_render, render_length as i32, sample_rate as i32);
+    tracing::debug!("Decode stage completed in {:?}", start_decode.elapsed());
 
     let g_factor = if parsed_flags.g != 0.0 {
         2.0_f64.powf(parsed_flags.g / 100.0)
@@ -202,22 +213,57 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
         (false, 0.0, 1.0, 1.0)
     };
 
-    sp_render.par_iter_mut().for_each(|sp| {
-        if (total_factor - 1.0).abs() > 0.001 {
-            synthesis::warp_spectrum(sp, sample_rate as f64, total_factor);
+    let warp_lut = if (total_factor - 1.0).abs() > 0.001 {
+        let sp_len = sp_render.first().map(|f| f.len()).unwrap_or(0);
+        if sp_len > 0 {
+            Some(synthesis::WarpLut::new(sp_len, sample_rate as f64, total_factor))
+        } else {
+            None
         }
-        for (d, s) in sp.iter_mut().enumerate() {
-            if do_tilt {
+    } else {
+        None
+    };
+
+    let tilt_factors: Option<Vec<f64>> = if do_tilt {
+        let sp_len = sp_render.first().map(|f| f.len()).unwrap_or(0);
+        let factors: Vec<f64> = (0..sp_len)
+            .map(|d| {
                 let freq = (d as f64 / fft_size_half) * nyquist;
                 if freq > 3500.0 {
                     let freq_scale = (freq - 3500.0) / 4000.0;
-                    let reduction_factor = 1.0 + tilt_intensity * 2.0 * freq_scale.powi(2);
-                    *s /= reduction_factor;
+                    1.0 / (1.0 + tilt_intensity * 2.0 * freq_scale.powi(2))
+                } else {
+                    1.0
                 }
-            }
-            *s = s.max(1e-16); // NaN 방지
+            })
+            .collect();
+        Some(factors)
+    } else {
+        None
+    };
+
+    let apply_sp = |sp: &mut Vec<f64>| {
+        if let Some(ref lut) = warp_lut {
+            lut.apply(sp);
         }
-    });
+        if let Some(ref tilt) = tilt_factors {
+            for (d, s) in sp.iter_mut().enumerate() {
+                *s *= tilt[d];
+                *s = s.max(1e-16);
+            }
+        } else {
+            for s in sp.iter_mut() {
+                *s = s.max(1e-16);
+            }
+        }
+    };
+
+    const PAR_THRESHOLD: usize = 2048;
+    if render_length < PAR_THRESHOLD {
+        sp_render.iter_mut().for_each(apply_sp);
+    } else {
+        sp_render.par_iter_mut().for_each(apply_sp);
+    }
 
     let h_factor = if parsed_flags.h > 0.0 {
         (parsed_flags.h.clamp(0.0, 100.0) / 100.0).powi(2)
@@ -239,7 +285,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     };
 
     let mut ap_final = ap_render;
-    ap_final.par_iter_mut().enumerate().for_each(|(i, frame)| {
+    let apply_ap = |(i, frame): (usize, &mut Vec<f64>)| {
         let is_voiced = vuv_render.get(i).copied().unwrap_or(false);
 
         let onset_breath_factor = if i < onset_fadein_frames {
@@ -270,7 +316,12 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
 
             *a = a.clamp(0.0, 1.0);
         }
-    });
+    };
+    if render_length < PAR_THRESHOLD {
+        ap_final.iter_mut().enumerate().for_each(apply_ap);
+    } else {
+        ap_final.par_iter_mut().enumerate().for_each(apply_ap);
+    }
 
     let pitchbend_semitones = utils::parse_pitchbend_to_semitones(&req.pitchbend);
     let pps = 8.0 * req.tempo as f64 / 5.0;
@@ -278,23 +329,26 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
 
     let modulation = parsed_flags.m / 100.0;
 
-    let f0_render: Vec<f64> = (0..render_length)
-        .into_par_iter()
-        .map(|i| {
-            if vuv_render[i] {
-                let t = (i as f64) / fps;
-                let pb_idx = t * pps;
-                let pb = pitchbend_interp.sample(pb_idx);
-                let f0_mod = f0_off_render[i] * modulation;
-                utils::midi_to_hz(target_midi + pb + f0_mod)
-            } else {
-                0.0
-            }
-        })
-        .collect();
+    let f0_map = |i: usize| {
+        if vuv_render[i] {
+            let t = (i as f64) / fps;
+            let pb_idx = t * pps;
+            let pb = pitchbend_interp.sample(pb_idx);
+            let f0_mod = f0_off_render[i] * modulation;
+            utils::midi_to_hz(target_midi + pb + f0_mod)
+        } else {
+            0.0
+        }
+    };
+    let f0_render: Vec<f64> = if render_length < PAR_THRESHOLD {
+        (0..render_length).map(f0_map).collect()
+    } else {
+        (0..render_length).into_par_iter().map(f0_map).collect()
+    };
 
     let volume = parsed_flags.a.clamp(0.0, 200.0) / 100.0;
 
+    let start_world_synth = Instant::now();
     let mut syn = synthesis::synthesize(
         &f0_render,
         &mut sp_render,
@@ -302,11 +356,16 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
         sample_rate,
         frame_period,
     );
+    tracing::debug!(
+        "WORLD synthesis stage completed in {:?}",
+        start_world_synth.elapsed()
+    );
 
-    let max_amp_orig = syn
-        .par_iter()
-        .map(|&x| x.abs())
-        .reduce(|| 0.0_f64, f64::max);
+    let max_amp_orig = if syn.len() < PAR_THRESHOLD {
+        syn.iter().fold(0.0_f64, |acc, &x| acc.max(x.abs()))
+    } else {
+        syn.par_iter().map(|&x| x.abs()).reduce(|| 0.0_f64, f64::max)
+    };
 
     if max_amp_orig > 0.0 {
         let d_factor = parsed_flags.d.clamp(0.0, 100.0) / 100.0;
@@ -335,7 +394,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
 
         // If we only have a simple scale of 1.0 and no D-flag, we can skip the loop
         if d_enabled || (final_scale - 1.0).abs() > 0.001 {
-            syn.par_iter_mut().for_each(|s| {
+            let apply_syn = |s: &mut f64| {
                 if d_enabled {
                     let abs_s = s.abs() / max_amp_orig;
                     if abs_s > threshold {
@@ -344,15 +403,23 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
                     }
                 }
                 *s *= final_scale;
-            });
+            };
+            if syn.len() < PAR_THRESHOLD {
+                syn.iter_mut().for_each(apply_syn);
+            } else {
+                syn.par_iter_mut().for_each(apply_syn);
+            }
         }
     }
 
+    let start_write = Instant::now();
     write_audio(output_path, &syn, sample_rate)?;
+    tracing::debug!("Write stage completed in {:?}", start_write.elapsed());
     tracing::info!(
-        "Synthesis completed for {:?} in {:?}",
+        "Synthesis completed for {:?} in {:?} (total {:?})",
         req.input_file,
-        start_synthesis.elapsed()
+        start_synthesis.elapsed(),
+        start_total.elapsed()
     );
     Ok(())
 }

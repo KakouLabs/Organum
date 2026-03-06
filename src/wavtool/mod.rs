@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::io::BufWriter;
 use std::path::Path;
+use std::time::Instant;
 
 pub mod audio;
 pub mod types;
@@ -10,6 +11,7 @@ pub use audio::{cubic_interpolate, read_wav_samples};
 pub use types::{AudioPart, EnvPoint, WavtoolRequest};
 
 pub fn concatenate(req: &WavtoolRequest) -> Result<()> {
+    let start_total = Instant::now();
     let config = crate::config::load_config();
     let sample_rate = config.sample_rate;
 
@@ -37,6 +39,7 @@ pub fn concatenate(req: &WavtoolRequest) -> Result<()> {
     tracing::debug!("Loaded canvas: {} samples", canvas.len());
 
     for (idx, part) in req.parts.iter().enumerate() {
+        let part_start = Instant::now();
         tracing::info!(
             "Part {}: path='{}', len_ms={}, offset_ms={}, skip_ms={}",
             idx,
@@ -160,6 +163,8 @@ pub fn concatenate(req: &WavtoolRequest) -> Result<()> {
             canvas[dest_idx] += val * gain;
             time_ms += step_ms;
         }
+
+        tracing::debug!("Part {} mixed in {:?}", idx, part_start.elapsed());
     }
 
     let file = std::fs::File::create(output_path)?;
@@ -202,9 +207,10 @@ pub fn concatenate(req: &WavtoolRequest) -> Result<()> {
     writer.finalize()?;
 
     tracing::info!(
-        "Wavtool complete. Output: {} samples, MaxAmp: {:.4}",
+        "Wavtool complete. Output: {} samples, MaxAmp: {:.4}, Total: {:?}",
         canvas.len(),
-        max_amp
+        max_amp,
+        start_total.elapsed()
     );
     Ok(())
 }

@@ -75,7 +75,6 @@ pub fn note_to_freq(note: &str) -> f64 {
     midi_to_hz(note_to_midi(note) as f64)
 }
 
-/// WAV 파일을 f64 모노로 디코딩. 멀티채널은 다운믹스.
 pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u32)> {
     use anyhow::Context;
 
@@ -90,28 +89,40 @@ pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u
         _ => 32768.0,
     };
     let channels = spec.channels as usize;
-    let samples_raw: Vec<i32> = reader
-        .samples()
-        .enumerate()
-        .map(|(i, s)| {
-            s.unwrap_or_else(|e| {
+    let total_samples = reader.len() as usize;
+    let estimated_frames = total_samples / channels.max(1);
+
+    let mut mono: Vec<f64> = Vec::with_capacity(estimated_frames);
+
+    if channels <= 1 {
+        // 모노: 직접 정규화하면서 수집
+        for (i, s) in reader.samples::<i32>().enumerate() {
+            let sample = s.unwrap_or_else(|e| {
                 tracing::warn!("Corrupted sample at index {} in {:?}: {}", i, path, e);
                 0
-            })
-        })
-        .collect();
-
-    let mono: Vec<f64> = if channels > 1 {
-        samples_raw
-            .chunks(channels)
-            .map(|ch| {
-                let sum: f64 = ch.iter().map(|&s| s as f64).sum();
-                sum / channels as f64 / max_val
-            })
-            .collect()
+            });
+            mono.push(sample as f64 / max_val);
+        }
     } else {
-        samples_raw.iter().map(|&s| s as f64 / max_val).collect()
-    };
+        let inv_ch = 1.0 / (channels as f64 * max_val);
+        let mut ch_sum: f64 = 0.0;
+        let mut ch_idx: usize = 0;
+
+        for (i, s) in reader.samples::<i32>().enumerate() {
+            let sample = s.unwrap_or_else(|e| {
+                tracing::warn!("Corrupted sample at index {} in {:?}: {}", i, path, e);
+                0
+            });
+            ch_sum += sample as f64;
+            ch_idx += 1;
+
+            if ch_idx == channels {
+                mono.push(ch_sum * inv_ch);
+                ch_sum = 0.0;
+                ch_idx = 0;
+            }
+        }
+    }
 
     Ok((mono, spec.sample_rate))
 }

@@ -5,8 +5,9 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use walkdir::WalkDir;
+use tracing_subscriber::EnvFilter;
 
-use organum::resampler::generate_and_cache_features;
+use organum::resampler::{generate_and_cache_features, is_feature_cache_compatible};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Organum cache generation tool", long_about = None)]
@@ -25,15 +26,31 @@ struct Args {
     /// Enable verbose logging
     #[arg(short, long)]
     verbose: bool,
+
+    /// Log output format: pretty or json
+    #[arg(long, default_value = "pretty", value_parser = ["pretty", "json"])]
+    log_format: String,
+}
+
+fn init_tracing(verbose: bool, json_logs: bool) {
+    let env_filter = if verbose {
+        EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into())
+    } else {
+        EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into())
+    };
+
+    let builder = tracing_subscriber::fmt().with_env_filter(env_filter);
+    if json_logs {
+        builder.json().init();
+    } else {
+        builder.init();
+    }
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-
-    if args.verbose {
-        std::env::set_var("RUST_LOG", "debug");
-    }
-    tracing_subscriber::fmt::init();
+    let json_logs = args.log_format.eq_ignore_ascii_case("json");
+    init_tracing(args.verbose, json_logs);
 
     if let Some(t) = args.threads {
         rayon::ThreadPoolBuilder::new()
@@ -84,7 +101,7 @@ fn main() -> Result<()> {
                 return true;
             }
             let sc_path = organum::resampler::to_feature_path(wav, &config.feature_extension);
-            if sc_path.exists() {
+            if sc_path.exists() && is_feature_cache_compatible(&sc_path) {
                 pb.inc(1);
                 false
             } else {

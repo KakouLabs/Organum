@@ -1,4 +1,8 @@
-use crate::resampler::{consts, types::WorldFeatures, utils::calculate_base_f0};
+use crate::resampler::{
+    consts,
+    types::{FeatureCacheV4, FeatureCacheV4Delta, FeatureCacheV4Quantized, WorldFeatures},
+    utils::calculate_base_f0,
+};
 use anyhow::Result;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -6,6 +10,33 @@ use std::path::Path;
 
 const CACHE_MAGIC: [u8; 4] = *b"ORGN";
 const CACHE_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Strategy {
+    Quantized,
+    DeltaQuantized,
+    Unknown,
+}
+
+/// Returns true when cache file has the current magic/version header.
+pub fn is_feature_cache_compatible(path: &Path) -> bool {
+    let mut f = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let mut magic = [0u8; 4];
+    if f.read_exact(&mut magic).is_err() || magic != CACHE_MAGIC {
+        return false;
+    }
+
+    let mut version_bytes = [0u8; 4];
+    if f.read_exact(&mut version_bytes).is_err() {
+        return false;
+    }
+
+    u32::from_le_bytes(version_bytes) == CACHE_VERSION
+}
 
 pub fn generate_features(
     audio: &[f64],
@@ -99,8 +130,8 @@ pub fn read_features(path: &Path) -> Result<WorldFeatures> {
     }
 
     let mut decoder = zstd::stream::Decoder::new(f)?;
-    let features: WorldFeatures = bincode::deserialize_from(&mut decoder)?;
-    Ok(features)
+    let cached: FeatureCacheV4 = bincode::deserialize_from(&mut decoder)?;
+    cached.try_into()
 }
 
 pub fn write_features(path: &Path, features: &WorldFeatures, compression_level: i32) -> Result<()> {
@@ -108,10 +139,119 @@ pub fn write_features(path: &Path, features: &WorldFeatures, compression_level: 
     f.write_all(&CACHE_MAGIC)?;
     f.write_all(&CACHE_VERSION.to_le_bytes())?;
 
-    let mut encoder = zstd::stream::Encoder::new(f, compression_level)?;
-    bincode::serialize_into(&mut encoder, features)?;
-    encoder.finish()?;
+    let q_payload = FeatureCacheV4::Quantized(FeatureCacheV4Quantized::from(features));
+    let d_payload = FeatureCacheV4::DeltaQuantized(FeatureCacheV4Delta::from(features));
+
+    match estimate_best_strategy(features) {
+        Strategy::Quantized => {
+            let q_bytes = compress_payload(&q_payload, compression_level)?;
+            f.write_all(&q_bytes)?;
+            tracing::debug!("Cache strategy=quantized(heuristic) q={}B", q_bytes.len());
+        }
+        Strategy::DeltaQuantized => {
+            let d_bytes = compress_payload(&d_payload, compression_level)?;
+            f.write_all(&d_bytes)?;
+            tracing::debug!(
+                "Cache strategy=delta-quantized(heuristic) d={}B",
+                d_bytes.len()
+            );
+        }
+        Strategy::Unknown => {
+            // Ambiguous signal statistics: compare both and keep the smaller payload.
+            let q_bytes = compress_payload(&q_payload, compression_level)?;
+            let d_bytes = compress_payload(&d_payload, compression_level)?;
+            if q_bytes.len() <= d_bytes.len() {
+                f.write_all(&q_bytes)?;
+                tracing::debug!(
+                    "Cache strategy=quantized(fallback) q={}B d={}B",
+                    q_bytes.len(),
+                    d_bytes.len()
+                );
+            } else {
+                f.write_all(&d_bytes)?;
+                tracing::debug!(
+                    "Cache strategy=delta-quantized(fallback) q={}B d={}B",
+                    q_bytes.len(),
+                    d_bytes.len()
+                );
+            }
+        }
+    }
+
     Ok(())
+}
+
+fn compress_payload(payload: &FeatureCacheV4, compression_level: i32) -> Result<Vec<u8>> {
+    let mut encoder = zstd::stream::Encoder::new(Vec::new(), compression_level)?;
+    bincode::serialize_into(&mut encoder, payload)?;
+    Ok(encoder.finish()?)
+}
+
+fn estimate_best_strategy(features: &WorldFeatures) -> Strategy {
+    let (mean_abs, mean_delta_abs) = spectral_activity_metrics(features);
+    if mean_abs <= 1e-8 {
+        return Strategy::DeltaQuantized;
+    }
+
+    // Lower score means smoother frame-to-frame changes, where delta coding is usually better.
+    let roughness = mean_delta_abs / mean_abs;
+
+    if roughness <= 0.45 {
+        Strategy::DeltaQuantized
+    } else if roughness >= 0.75 {
+        Strategy::Quantized
+    } else {
+        Strategy::Unknown
+    }
+}
+
+fn spectral_activity_metrics(features: &WorldFeatures) -> (f32, f32) {
+    let mut abs_sum = 0.0_f64;
+    let mut abs_count: usize = 0;
+    let mut delta_sum = 0.0_f64;
+    let mut delta_count: usize = 0;
+
+    for row in &features.mgc {
+        accumulate_row_metrics(row, &mut abs_sum, &mut abs_count, &mut delta_sum, &mut delta_count);
+    }
+    for row in &features.bap {
+        accumulate_row_metrics(row, &mut abs_sum, &mut abs_count, &mut delta_sum, &mut delta_count);
+    }
+
+    let mean_abs = if abs_count > 0 {
+        (abs_sum / abs_count as f64) as f32
+    } else {
+        0.0
+    };
+    let mean_delta_abs = if delta_count > 0 {
+        (delta_sum / delta_count as f64) as f32
+    } else {
+        0.0
+    };
+
+    (mean_abs, mean_delta_abs)
+}
+
+fn accumulate_row_metrics(
+    row: &[f64],
+    abs_sum: &mut f64,
+    abs_count: &mut usize,
+    delta_sum: &mut f64,
+    delta_count: &mut usize,
+) {
+    if row.is_empty() {
+        return;
+    }
+
+    for &v in row {
+        *abs_sum += v.abs();
+        *abs_count += 1;
+    }
+
+    for w in row.windows(2) {
+        *delta_sum += (w[1] - w[0]).abs();
+        *delta_count += 1;
+    }
 }
 
 #[cfg(test)]
@@ -119,6 +259,10 @@ mod tests {
     use super::*;
     use crate::resampler::types::WorldFeatures;
     use std::env;
+
+    fn approx_eq(a: f64, b: f64, eps: f64) -> bool {
+        (a - b).abs() <= eps
+    }
 
     #[test]
     fn test_features_roundtrip() -> Result<()> {
@@ -142,10 +286,21 @@ mod tests {
         // read
         let read_back = read_features(&temp_path)?;
 
-        assert_eq!(read_back.base_f0, features.base_f0);
-        assert_eq!(read_back.f0, features.f0);
-        assert_eq!(read_back.mgc, features.mgc);
-        assert_eq!(read_back.bap, features.bap);
+        assert!(approx_eq(read_back.base_f0, features.base_f0, 1e-4));
+        for (a, b) in read_back.f0.iter().zip(features.f0.iter()) {
+            assert!(approx_eq(*a, *b, 1e-3));
+        }
+        for (row_a, row_b) in read_back.mgc.iter().zip(features.mgc.iter()) {
+            for (a, b) in row_a.iter().zip(row_b.iter()) {
+                assert!(approx_eq(*a, *b, 1e-3));
+            }
+        }
+        for (row_a, row_b) in read_back.bap.iter().zip(features.bap.iter()) {
+            for (a, b) in row_a.iter().zip(row_b.iter()) {
+                assert!(approx_eq(*a, *b, 1e-3));
+            }
+        }
+        assert!(is_feature_cache_compatible(&temp_path));
 
         // clean up
         let _ = std::fs::remove_file(temp_path);

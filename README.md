@@ -28,6 +28,21 @@ OpenUtau 또는 UTAU에서:
 1. `organum-resampler`를 Resampler로 설정
 2. `organum-wavtool`을 Wavtool로 설정
 
+### Logging
+
+세 바이너리 모두 구조화 로그를 지원합니다.
+
+- `--verbose`: 디버그 레벨 로그 활성화
+- `--log-format pretty|json`: 로그 출력 형식 선택
+
+예시:
+
+```powershell
+./organum-resampler --verbose --log-format json ...
+./organum-wavtool --log-format json ...
+./caching-tool.exe --verbose --log-format json "C:\Path\To\Your\Voicebank"
+```
+
 ### Voicebank 캐싱
 
 캐싱 툴로 voicebank를 미리 분석해두면 렌더링 시 분석 단계를 건너뜁니다.
@@ -48,6 +63,22 @@ zstd_compression_level: 3
 ```
 
 자세한 내용은 [Configuration Guide](docs/CONFIGURATION.md) 참고.
+
+## Build
+
+Organum은 단일 릴리스 프로파일(`release`)을 사용합니다.
+
+```bash
+cargo build --workspace --release
+```
+
+```powershell
+./build.bat
+```
+
+```bash
+./build.sh
+```
 
 > [!IMPORTANT]
 > OpenUtau는 `.ogc` 확장자를 기본 지원하지 않습니다. `feature_extension`을 `llsm`으로 변경하면 OpenUtau의 캐시 관리와 호환됩니다.
