@@ -1,4 +1,4 @@
-use crate::resampler::consts;
+use crate::resampler::common::consts;
 use rayon::prelude::*;
 use std::path::Path;
 
