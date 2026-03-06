@@ -1,7 +1,5 @@
 #[cfg(feature = "gpu-warp")]
-use wgpu::util::DeviceExt;
-#[cfg(feature = "gpu-warp")]
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 pub fn synthesize(
     f0: &Vec<f64>,
@@ -137,6 +135,115 @@ pub fn try_apply_warp_gpu_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Resul
         let _ = frames;
         let _ = lut;
         Err("gpu-warp feature is disabled at build time".to_string())
+    }
+}
+
+#[cfg(feature = "gpu-warp")]
+fn allocate_gpu_buffers(
+    device: &wgpu::Device,
+    ctx: &GpuWarpContext,
+    bins: usize,
+    frame_count: usize,
+) -> GpuWarpBufferCache {
+    let alloc_frames = frame_count.next_power_of_two().max(2048);
+    let alloc_total = alloc_frames * bins;
+
+    let input_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_input"),
+        size: (alloc_total * std::mem::size_of::<f32>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_output"),
+        size: (alloc_total * std::mem::size_of::<f32>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    let idx_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_idx"),
+        size: (bins * std::mem::size_of::<u32>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let frac_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_frac"),
+        size: (bins * std::mem::size_of::<f32>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let clamped_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_clamped"),
+        size: (bins * std::mem::size_of::<u32>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_params"),
+        size: std::mem::size_of::<WarpParams>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("warp_bg"),
+        layout: &ctx.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: output_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: idx_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: frac_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: clamped_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: params_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_readback"),
+        size: (alloc_total * std::mem::size_of::<f32>()) as u64,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    GpuWarpBufferCache {
+        bins,
+        frames: alloc_frames,
+        input_buffer,
+        output_buffer,
+        idx_buffer,
+        frac_buffer,
+        clamped_buffer,
+        params_buffer,
+        readback,
+        bind_group,
+        host_input_data: Vec::with_capacity(alloc_total),
+        host_idx_floor: vec![0; bins],
+        host_frac: vec![0.0; bins],
+        host_clamped: vec![0; bins],
+        lut_uploaded: false,
     }
 }
 
@@ -314,6 +421,40 @@ async fn init_gpu_context() -> Result<GpuWarpContext, String> {
 }
 
 #[cfg(feature = "gpu-warp")]
+struct GpuWarpBufferCache {
+    bins: usize,
+    frames: usize,
+    input_buffer: wgpu::Buffer,
+    output_buffer: wgpu::Buffer,
+    idx_buffer: wgpu::Buffer,
+    frac_buffer: wgpu::Buffer,
+    clamped_buffer: wgpu::Buffer,
+    params_buffer: wgpu::Buffer,
+    readback: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    host_input_data: Vec<f32>,
+    host_idx_floor: Vec<u32>,
+    host_frac: Vec<f32>,
+    host_clamped: Vec<u32>,
+    lut_uploaded: bool,
+}
+
+#[cfg(feature = "gpu-warp")]
+static GPU_WARP_CACHE: Mutex<Option<GpuWarpBufferCache>> = Mutex::new(None);
+
+#[cfg(feature = "gpu-warp")]
+fn return_cache(bufs: GpuWarpBufferCache) {
+    match GPU_WARP_CACHE.lock() {
+        Ok(mut cache_guard) => {
+            *cache_guard = Some(bufs);
+        }
+        Err(e) => {
+            tracing::warn!("Failed to return GPU warp cache due to poisoned mutex: {}", e);
+        }
+    }
+}
+
+#[cfg(feature = "gpu-warp")]
 async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(), String> {
     if frames.is_empty() {
         return Ok(());
@@ -333,52 +474,51 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
         .checked_mul(bins)
         .ok_or_else(|| "gpu warp size overflow".to_string())?;
 
-    let mut input_data = Vec::with_capacity(total);
-    for frame in frames.iter() {
-        input_data.extend(frame.iter().map(|&v| v as f32));
-    }
-
-    let idx_floor_u32: Vec<u32> = lut
-        .idx_floor
-        .iter()
-        .map(|&x| x as u32)
-        .collect();
-    let frac_f32: Vec<f32> = lut.frac.iter().map(|&x| x as f32).collect();
-    let clamped_u32: Vec<u32> = lut.clamped.iter().map(|&x| u32::from(x)).collect();
-
     let ctx = get_or_init_gpu_context()?;
     let device = &ctx.device;
     let queue = &ctx.queue;
 
-    let input_bytes = bytemuck::cast_slice(&input_data);
-    let input_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("warp_input"),
-        contents: input_bytes,
-        usage: wgpu::BufferUsages::STORAGE,
-    });
+    let mut bufs = {
+        let mut cache_guard = GPU_WARP_CACHE.lock().map_err(|e| format!("cache mutex poisoned: {}", e))?;
+        if let Some(b) = cache_guard.take() {
+            if b.bins == bins && b.frames >= frame_count {
+                b
+            } else {
+                allocate_gpu_buffers(device, ctx, bins, frame_count)
+            }
+        } else {
+            allocate_gpu_buffers(device, ctx, bins, frame_count)
+        }
+    };
 
-    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("warp_output"),
-        size: input_bytes.len() as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
+    bufs.host_input_data.clear();
+    for frame in frames.iter() {
+        bufs.host_input_data.extend(frame.iter().map(|&v| v as f32));
+    }
 
-    let idx_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("warp_idx"),
-        contents: bytemuck::cast_slice(&idx_floor_u32),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
-    let frac_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("warp_frac"),
-        contents: bytemuck::cast_slice(&frac_f32),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
-    let clamped_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("warp_clamped"),
-        contents: bytemuck::cast_slice(&clamped_u32),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
+    let mut lut_changed = !bufs.lut_uploaded;
+    for i in 0..bins {
+        let idx_u32 = lut.idx_floor[i] as u32;
+        let frac_f32 = lut.frac[i] as f32;
+        let clamped_u32 = u32::from(lut.clamped[i]);
+        
+        if bufs.host_idx_floor[i] != idx_u32 || bufs.host_frac[i] != frac_f32 || bufs.host_clamped[i] != clamped_u32 {
+            bufs.host_idx_floor[i] = idx_u32;
+            bufs.host_frac[i] = frac_f32;
+            bufs.host_clamped[i] = clamped_u32;
+            lut_changed = true;
+        }
+    }
+
+    let input_bytes = bytemuck::cast_slice(&bufs.host_input_data);
+    queue.write_buffer(&bufs.input_buffer, 0, input_bytes);
+
+    if lut_changed {
+        queue.write_buffer(&bufs.idx_buffer, 0, bytemuck::cast_slice(&bufs.host_idx_floor));
+        queue.write_buffer(&bufs.frac_buffer, 0, bytemuck::cast_slice(&bufs.host_frac));
+        queue.write_buffer(&bufs.clamped_buffer, 0, bytemuck::cast_slice(&bufs.host_clamped));
+        bufs.lut_uploaded = true;
+    }
 
     let params = WarpParams {
         bins: bins as u32,
@@ -386,49 +526,7 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
         _pad0: 0,
         _pad1: 0,
     };
-    let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("warp_params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("warp_bg"),
-        layout: &ctx.bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: input_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: output_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: idx_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: frac_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: clamped_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
-
-    let readback = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("warp_readback"),
-        size: input_bytes.len() as u64,
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    queue.write_buffer(&bufs.params_buffer, 0, bytemuck::bytes_of(&params));
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("warp_encoder"),
@@ -440,42 +538,65 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
             timestamp_writes: None,
         });
         pass.set_pipeline(&ctx.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_bind_group(0, &bufs.bind_group, &[]);
         let workgroup_size = 256u32;
         let groups_x = (bins as u32).div_ceil(workgroup_size);
         let groups_y = frame_count as u32;
         pass.dispatch_workgroups(groups_x, groups_y, 1);
     }
 
-    encoder.copy_buffer_to_buffer(&output_buffer, 0, &readback, 0, input_bytes.len() as u64);
+    encoder.copy_buffer_to_buffer(
+        &bufs.output_buffer,
+        0,
+        &bufs.readback,
+        0,
+        input_bytes.len() as u64,
+    );
     queue.submit(Some(encoder.finish()));
 
-    let slice = readback.slice(..);
+    let slice = bufs.readback.slice(0..input_bytes.len() as u64);
     let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
+    slice.map_async(wgpu::MapMode::Read, move |res: Result<(), wgpu::BufferAsyncError>| {
         let _ = tx.send(res);
     });
     device.poll(wgpu::Maintain::Wait);
 
-    let map_result = rx
-        .recv()
-        .map_err(|e| format!("gpu map channel failed: {e}"))?;
-    map_result.map_err(|e| format!("failed to map readback buffer: {e:?}"))?;
+    let map_result = match rx.recv() {
+        Ok(res) => res,
+        Err(e) => {
+            return_cache(bufs);
+            return Err(format!("gpu map channel failed: {e}"));
+        }
+    };
+    
+    if let Err(e) = map_result {
+        return_cache(bufs);
+        return Err(format!("failed to map readback buffer: {e:?}"));
+    }
 
     {
         let mapped = slice.get_mapped_range();
         let output: &[f32] = bytemuck::cast_slice(&mapped);
         if output.len() != total {
+            drop(mapped); // End the borrow of `slice` / `bufs`
+            bufs.readback.unmap();
+            return_cache(bufs);
             return Err("gpu output size mismatch".to_string());
         }
 
-        for (frame, chunk) in frames.iter_mut().zip(output.chunks_exact(bins)) {
-            for (dst, &src) in frame.iter_mut().zip(chunk.iter()) {
-                *dst = src as f64;
-            }
-        }
+        // Avoid repeated index checks by unwrapping chunks and fast-copying
+        frames
+            .iter_mut()
+            .zip(output.chunks_exact(bins))
+            .for_each(|(frame, chunk)| {
+                // Avoid bounds checks: length guaranteed to match exactly `bins` length.
+                for i in 0..bins {
+                    frame[i] = chunk[i] as f64;
+                }
+            });
     }
 
-    readback.unmap();
+    bufs.readback.unmap();
+    return_cache(bufs);
     Ok(())
 }
