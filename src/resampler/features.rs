@@ -212,10 +212,22 @@ fn spectral_activity_metrics(features: &WorldFeatures) -> (f32, f32) {
     let mut delta_count: usize = 0;
 
     for row in &features.mgc {
-        accumulate_row_metrics(row, &mut abs_sum, &mut abs_count, &mut delta_sum, &mut delta_count);
+        accumulate_row_metrics(
+            row,
+            &mut abs_sum,
+            &mut abs_count,
+            &mut delta_sum,
+            &mut delta_count,
+        );
     }
     for row in &features.bap {
-        accumulate_row_metrics(row, &mut abs_sum, &mut abs_count, &mut delta_sum, &mut delta_count);
+        accumulate_row_metrics(
+            row,
+            &mut abs_sum,
+            &mut abs_count,
+            &mut delta_sum,
+            &mut delta_count,
+        );
     }
 
     let mean_abs = if abs_count > 0 {

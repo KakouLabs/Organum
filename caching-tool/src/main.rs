@@ -4,8 +4,8 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use walkdir::WalkDir;
 use tracing_subscriber::EnvFilter;
+use walkdir::WalkDir;
 
 use organum::resampler::{generate_and_cache_features, is_feature_cache_compatible};
 

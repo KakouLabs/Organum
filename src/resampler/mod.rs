@@ -12,9 +12,7 @@ pub mod types;
 pub mod utils;
 
 pub use audio::{read_audio, resample_audio, write_audio};
-pub use features::{
-    generate_features, is_feature_cache_compatible, read_features, write_features,
-};
+pub use features::{generate_features, is_feature_cache_compatible, read_features, write_features};
 pub use types::ResampleRequest;
 pub use utils::{interpolate_frames, to_feature_path, LinearInterpolator};
 
@@ -216,7 +214,11 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let warp_lut = if (total_factor - 1.0).abs() > 0.001 {
         let sp_len = sp_render.first().map(|f| f.len()).unwrap_or(0);
         if sp_len > 0 {
-            Some(synthesis::WarpLut::new(sp_len, sample_rate as f64, total_factor))
+            Some(synthesis::WarpLut::new(
+                sp_len,
+                sample_rate as f64,
+                total_factor,
+            ))
         } else {
             None
         }
@@ -364,7 +366,9 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let max_amp_orig = if syn.len() < PAR_THRESHOLD {
         syn.iter().fold(0.0_f64, |acc, &x| acc.max(x.abs()))
     } else {
-        syn.par_iter().map(|&x| x.abs()).reduce(|| 0.0_f64, f64::max)
+        syn.par_iter()
+            .map(|&x| x.abs())
+            .reduce(|| 0.0_f64, f64::max)
     };
 
     if max_amp_orig > 0.0 {
