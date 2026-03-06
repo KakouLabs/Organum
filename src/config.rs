@@ -22,6 +22,12 @@ pub struct OrganumConfig {
 
     #[serde(default = "default_compressor_limit")]
     pub compressor_limit: f32,
+
+    #[serde(default = "default_gpu_warp_enabled")]
+    pub gpu_warp_enabled: bool,
+
+    #[serde(default = "default_gpu_warp_min_frames")]
+    pub gpu_warp_min_frames: usize,
 }
 
 fn default_feature_ext() -> String {
@@ -42,6 +48,12 @@ fn default_compressor_threshold() -> f32 {
 fn default_compressor_limit() -> f32 {
     0.99
 }
+fn default_gpu_warp_enabled() -> bool {
+    false
+}
+fn default_gpu_warp_min_frames() -> usize {
+    2048
+}
 
 impl Default for OrganumConfig {
     fn default() -> Self {
@@ -52,6 +64,8 @@ impl Default for OrganumConfig {
             zstd_compression_level: default_zstd_level(),
             compressor_threshold: default_compressor_threshold(),
             compressor_limit: default_compressor_limit(),
+            gpu_warp_enabled: default_gpu_warp_enabled(),
+            gpu_warp_min_frames: default_gpu_warp_min_frames(),
         }
     }
 }
@@ -75,13 +89,19 @@ pub fn load_config() -> OrganumConfig {
              # Wavtool compressor threshold (default: 0.85)\n\
              compressor_threshold: {:.2}\n\n\
              # Wavtool compressor limit (default: 0.99)\n\
-             compressor_limit: {:.2}\n",
+             compressor_limit: {:.2}\n\n\
+             # Enable experimental GPU route for warp_spectrum (default: false)\n\
+             gpu_warp_enabled: {}\n\n\
+             # Minimum render frames before trying GPU warp route (default: 2048)\n\
+             gpu_warp_min_frames: {}\n",
             default_config.feature_extension,
             default_config.sample_rate,
             default_config.frame_period,
             default_config.zstd_compression_level,
             default_config.compressor_threshold,
-            default_config.compressor_limit
+            default_config.compressor_limit,
+            default_config.gpu_warp_enabled,
+            default_config.gpu_warp_min_frames,
         );
         let _ = fs::write(&config_path, yaml_content);
         return default_config;

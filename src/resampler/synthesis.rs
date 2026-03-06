@@ -1,3 +1,8 @@
+#[cfg(feature = "gpu-warp")]
+use wgpu::util::DeviceExt;
+#[cfg(feature = "gpu-warp")]
+use std::sync::OnceLock;
+
 pub fn synthesize(
     f0: &Vec<f64>,
     sp: &mut Vec<Vec<f64>>,
@@ -6,6 +11,29 @@ pub fn synthesize(
     frame_period: f64,
 ) -> Vec<f64> {
     rsworld::synthesis(f0, sp, ap, frame_period, sample_rate as i32)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WarpBackend {
+    Cpu,
+    Gpu,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct WarpDispatchConfig {
+    pub gpu_warp_enabled: bool,
+    pub gpu_warp_min_frames: usize,
+}
+
+impl WarpDispatchConfig {
+    #[inline]
+    pub fn choose_backend(&self, render_length: usize) -> WarpBackend {
+        if self.gpu_warp_enabled && render_length >= self.gpu_warp_min_frames {
+            WarpBackend::Gpu
+        } else {
+            WarpBackend::Cpu
+        }
+    }
 }
 
 pub struct WarpLut {
@@ -72,4 +100,382 @@ pub fn warp_spectrum(sp: &mut Vec<f64>, fs: f64, factor: f64) {
     }
     let lut = WarpLut::new(sp.len(), fs, factor);
     lut.apply(sp);
+}
+
+#[inline]
+pub fn apply_warp_with_backend(sp: &mut Vec<f64>, lut: &WarpLut, backend: WarpBackend) {
+    match backend {
+        WarpBackend::Cpu => lut.apply(sp),
+        WarpBackend::Gpu => lut.apply(sp),
+    }
+}
+
+#[inline]
+pub fn try_apply_warp_batch_with_backend(
+    frames: &mut [Vec<f64>],
+    lut: &WarpLut,
+    backend: WarpBackend,
+) -> Result<(), String> {
+    match backend {
+        WarpBackend::Cpu => {
+            for frame in frames.iter_mut() {
+                lut.apply(frame);
+            }
+            Ok(())
+        }
+        WarpBackend::Gpu => try_apply_warp_gpu_batch(frames, lut),
+    }
+}
+
+pub fn try_apply_warp_gpu_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(), String> {
+    #[cfg(feature = "gpu-warp")]
+    {
+        return pollster::block_on(run_wgpu_warp_batch(frames, lut));
+    }
+    #[cfg(not(feature = "gpu-warp"))]
+    {
+        let _ = frames;
+        let _ = lut;
+        Err("gpu-warp feature is disabled at build time".to_string())
+    }
+}
+
+#[cfg(feature = "gpu-warp")]
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct WarpParams {
+    bins: u32,
+    frames: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+#[cfg(feature = "gpu-warp")]
+struct GpuWarpContext {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    bind_group_layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::ComputePipeline,
+}
+
+#[cfg(feature = "gpu-warp")]
+static GPU_WARP_CONTEXT: OnceLock<Result<GpuWarpContext, String>> = OnceLock::new();
+
+#[cfg(feature = "gpu-warp")]
+const WARP_SHADER: &str = r#"
+struct WarpParams {
+    bins: u32,
+    frames: u32,
+    _pad0: u32,
+    _pad1: u32,
+};
+
+@group(0) @binding(0) var<storage, read> input_data: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output_data: array<f32>;
+@group(0) @binding(2) var<storage, read> idx_floor: array<u32>;
+@group(0) @binding(3) var<storage, read> frac: array<f32>;
+@group(0) @binding(4) var<storage, read> clamped: array<u32>;
+@group(0) @binding(5) var<uniform> params: WarpParams;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let bin = gid.x;
+    let frame = gid.y;
+    if (bin >= params.bins || frame >= params.frames) {
+        return;
+    }
+
+    let base = frame * params.bins;
+    let i = base + bin;
+
+    if (clamped[bin] != 0u) {
+        output_data[i] = input_data[base + params.bins - 1u];
+    } else {
+        let fl = idx_floor[bin];
+        let t = frac[bin];
+        output_data[i] = input_data[base + fl] * (1.0 - t) + input_data[base + fl + 1u] * t;
+    }
+}
+"#;
+
+#[cfg(feature = "gpu-warp")]
+fn get_or_init_gpu_context() -> Result<&'static GpuWarpContext, String> {
+    let result = GPU_WARP_CONTEXT.get_or_init(|| pollster::block_on(init_gpu_context()));
+    match result {
+        Ok(ctx) => Ok(ctx),
+        Err(e) => Err(e.clone()),
+    }
+}
+
+#[cfg(feature = "gpu-warp")]
+async fn init_gpu_context() -> Result<GpuWarpContext, String> {
+    let instance = wgpu::Instance::default();
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .await
+        .ok_or_else(|| "no compatible GPU adapter found".to_string())?;
+
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .await
+        .map_err(|e| format!("failed to request device: {e}"))?;
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("warp_shader"),
+        source: wgpu::ShaderSource::Wgsl(WARP_SHADER.into()),
+    });
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("warp_bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 5,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("warp_pipeline_layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("warp_pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &shader,
+        entry_point: "main",
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+    });
+
+    Ok(GpuWarpContext {
+        device,
+        queue,
+        bind_group_layout,
+        pipeline,
+    })
+}
+
+#[cfg(feature = "gpu-warp")]
+async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(), String> {
+    if frames.is_empty() {
+        return Ok(());
+    }
+
+    let bins = lut.idx_floor.len();
+    if bins == 0 {
+        return Ok(());
+    }
+
+    if frames.iter().any(|f| f.len() != bins) {
+        return Err("inconsistent spectrum frame length for gpu warp".to_string());
+    }
+
+    let frame_count = frames.len();
+    let total = frame_count
+        .checked_mul(bins)
+        .ok_or_else(|| "gpu warp size overflow".to_string())?;
+
+    let mut input_data = Vec::with_capacity(total);
+    for frame in frames.iter() {
+        input_data.extend(frame.iter().map(|&v| v as f32));
+    }
+
+    let idx_floor_u32: Vec<u32> = lut
+        .idx_floor
+        .iter()
+        .map(|&x| x as u32)
+        .collect();
+    let frac_f32: Vec<f32> = lut.frac.iter().map(|&x| x as f32).collect();
+    let clamped_u32: Vec<u32> = lut.clamped.iter().map(|&x| u32::from(x)).collect();
+
+    let ctx = get_or_init_gpu_context()?;
+    let device = &ctx.device;
+    let queue = &ctx.queue;
+
+    let input_bytes = bytemuck::cast_slice(&input_data);
+    let input_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("warp_input"),
+        contents: input_bytes,
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+
+    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_output"),
+        size: input_bytes.len() as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    let idx_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("warp_idx"),
+        contents: bytemuck::cast_slice(&idx_floor_u32),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let frac_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("warp_frac"),
+        contents: bytemuck::cast_slice(&frac_f32),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let clamped_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("warp_clamped"),
+        contents: bytemuck::cast_slice(&clamped_u32),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+
+    let params = WarpParams {
+        bins: bins as u32,
+        frames: frame_count as u32,
+        _pad0: 0,
+        _pad1: 0,
+    };
+    let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("warp_params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("warp_bg"),
+        layout: &ctx.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: output_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: idx_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: frac_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: clamped_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: params_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("warp_readback"),
+        size: input_bytes.len() as u64,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("warp_encoder"),
+    });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("warp_pass"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&ctx.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        let workgroup_size = 256u32;
+        let groups_x = (bins as u32).div_ceil(workgroup_size);
+        let groups_y = frame_count as u32;
+        pass.dispatch_workgroups(groups_x, groups_y, 1);
+    }
+
+    encoder.copy_buffer_to_buffer(&output_buffer, 0, &readback, 0, input_bytes.len() as u64);
+    queue.submit(Some(encoder.finish()));
+
+    let slice = readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    device.poll(wgpu::Maintain::Wait);
+
+    let map_result = rx
+        .recv()
+        .map_err(|e| format!("gpu map channel failed: {e}"))?;
+    map_result.map_err(|e| format!("failed to map readback buffer: {e:?}"))?;
+
+    {
+        let mapped = slice.get_mapped_range();
+        let output: &[f32] = bytemuck::cast_slice(&mapped);
+        if output.len() != total {
+            return Err("gpu output size mismatch".to_string());
+        }
+
+        for (frame, chunk) in frames.iter_mut().zip(output.chunks_exact(bins)) {
+            for (dst, &src) in frame.iter_mut().zip(chunk.iter()) {
+                *dst = src as f64;
+            }
+        }
+    }
+
+    readback.unmap();
+    Ok(())
 }

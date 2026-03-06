@@ -13,11 +13,18 @@ rayon = "1.11.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 zstd = "0.13.3"
+wgpu = "0.20"
+pollster = "0.3"
+bytemuck = { version = "1.16", features = ["derive"] }
 
 [package]
 name = "organum"
 version = "0.0.4"
 edition = "2021"
+
+[features]
+default = []
+gpu-warp = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
 serde = { workspace = true }
@@ -34,6 +41,9 @@ bincode = { workspace = true }
 rayon = { workspace = true }
 zstd = { workspace = true }
 getrandom = "0.4.2"
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
 
 [[bin]]
 name = "organum-resampler"
