@@ -3,18 +3,18 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::resampler::{
+    common::consts,
+    common::flags::parse_flags,
+    common::utils::{self, interpolate_frames, to_feature_path},
     io::audio::{read_audio, write_audio},
     io::features::{generate_features, read_features, write_features},
-    common::flags::parse_flags,
-    stages::timing::calculate_timing,
-    stages::spectrum::apply_warp_and_tilt,
     stages::aperiodicity::apply_aperiodicity_mods,
-    stages::pitch::generate_pitch,
     stages::dynamics::apply_dynamics,
+    stages::pitch::generate_pitch,
+    stages::spectrum::apply_warp_and_tilt,
+    stages::timing::calculate_timing,
     synthesis::synthesize,
     types::ResampleRequest,
-    common::utils::{self, interpolate_frames, to_feature_path},
-    common::consts,
 };
 
 pub fn resample(req: &ResampleRequest) -> Result<()> {

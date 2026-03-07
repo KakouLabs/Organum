@@ -1,9 +1,6 @@
 use rayon::prelude::*;
 
-use crate::resampler::{
-    common::consts,
-    synthesis,
-};
+use crate::resampler::{common::consts, synthesis};
 
 pub fn apply_warp_and_tilt(
     sp_render: &mut [Vec<f64>],
@@ -28,7 +25,11 @@ pub fn apply_warp_and_tilt(
     let warp_lut = if (total_factor - 1.0).abs() > 0.001 {
         let sp_len = sp_render.first().map(|f| f.len()).unwrap_or(0);
         if sp_len > 0 {
-            Some(synthesis::WarpLut::new(sp_len, sample_rate as f64, total_factor))
+            Some(synthesis::WarpLut::new(
+                sp_len,
+                sample_rate as f64,
+                total_factor,
+            ))
         } else {
             None
         }
@@ -73,11 +74,7 @@ pub fn apply_warp_and_tilt(
     if let Some(ref lut) = warp_lut {
         let mut gpu_applied = false;
         if matches!(warp_backend, synthesis::WarpBackend::Gpu) {
-            match synthesis::try_apply_warp_batch_with_backend(
-                sp_render,
-                lut,
-                warp_backend,
-            ) {
+            match synthesis::try_apply_warp_batch_with_backend(sp_render, lut, warp_backend) {
                 Ok(()) => {
                     gpu_applied = true;
                 }

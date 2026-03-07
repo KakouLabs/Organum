@@ -1,17 +1,14 @@
 use rayon::prelude::*;
 
-pub fn apply_dynamics(
-    syn: &mut [f64],
-    d_flag: f64,
-    p_flag: f64,
-    volume: f64,
-) {
+pub fn apply_dynamics(syn: &mut [f64], d_flag: f64, p_flag: f64, volume: f64) {
     const PAR_THRESHOLD: usize = 2048;
 
     let max_amp_orig = if syn.len() < PAR_THRESHOLD {
         syn.iter().fold(0.0_f64, |acc, &x| acc.max(x.abs()))
     } else {
-        syn.par_iter().map(|&x| x.abs()).reduce(|| 0.0_f64, f64::max)
+        syn.par_iter()
+            .map(|&x| x.abs())
+            .reduce(|| 0.0_f64, f64::max)
     };
 
     if max_amp_orig > 0.0 {

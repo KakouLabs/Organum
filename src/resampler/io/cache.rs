@@ -1,11 +1,11 @@
+use anyhow::Result;
 use std::path::Path;
 use std::time::Instant;
-use anyhow::Result;
 
 use crate::resampler::{
+    common::utils::to_feature_path,
     io::audio::read_audio,
     io::features::{generate_features, read_features, write_features},
-    common::utils::to_feature_path,
 };
 
 pub fn generate_and_cache_features(

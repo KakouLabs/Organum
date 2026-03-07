@@ -1,7 +1,7 @@
 use crate::resampler::{
     common::consts,
-    types::{FeatureCacheV4, FeatureCacheV4Delta, FeatureCacheV4Quantized, WorldFeatures},
     common::utils::calculate_base_f0,
+    types::{FeatureCacheV4, FeatureCacheV4Delta, FeatureCacheV4Quantized, WorldFeatures},
 };
 use anyhow::Result;
 use std::fs::File;

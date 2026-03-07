@@ -1,10 +1,7 @@
 use anyhow::Result;
 use rayon::prelude::*;
 
-use crate::resampler::{
-    types::ResampleRequest,
-    common::utils::LinearInterpolator,
-};
+use crate::resampler::{common::utils::LinearInterpolator, types::ResampleRequest};
 
 pub struct TimingData {
     pub render_length: usize,

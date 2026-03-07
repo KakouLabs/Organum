@@ -1,9 +1,6 @@
 use rayon::prelude::*;
 
-use crate::resampler::{
-    types::ResampleRequest,
-    common::utils,
-};
+use crate::resampler::{common::utils, types::ResampleRequest};
 
 pub fn generate_pitch(
     req: &ResampleRequest,

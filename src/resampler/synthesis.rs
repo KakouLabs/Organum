@@ -1,8 +1,8 @@
-#[cfg(feature = "gpu-warp")]
-use std::sync::{Mutex, OnceLock};
+use rayon::prelude::*;
 #[cfg(feature = "gpu-warp")]
 use std::sync::atomic::{AtomicU64, Ordering};
-use rayon::prelude::*;
+#[cfg(feature = "gpu-warp")]
+use std::sync::{Mutex, OnceLock};
 
 pub fn synthesize(
     f0: &Vec<f64>,
@@ -73,8 +73,7 @@ pub fn gpu_warp_stats() -> GpuWarpStats {
             buffer_allocations: GPU_WARP_BUFFER_ALLOCATIONS.load(Ordering::Relaxed),
             lut_uploads: GPU_WARP_LUT_UPLOADS.load(Ordering::Relaxed),
             map_errors: GPU_WARP_MAP_ERRORS.load(Ordering::Relaxed),
-            cache_return_lock_failures: GPU_WARP_CACHE_RETURN_LOCK_FAILURES
-                .load(Ordering::Relaxed),
+            cache_return_lock_failures: GPU_WARP_CACHE_RETURN_LOCK_FAILURES.load(Ordering::Relaxed),
             chunk_dispatches: GPU_WARP_CHUNK_DISPATCHES.load(Ordering::Relaxed),
         };
     }
@@ -603,7 +602,10 @@ fn return_cache(bufs: GpuWarpBufferCache) {
         }
         Err(e) => {
             GPU_WARP_CACHE_RETURN_LOCK_FAILURES.fetch_add(1, Ordering::Relaxed);
-            tracing::warn!("Failed to return GPU warp cache due to poisoned mutex: {}", e);
+            tracing::warn!(
+                "Failed to return GPU warp cache due to poisoned mutex: {}",
+                e
+            );
         }
     }
 }
@@ -633,7 +635,9 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
     let bucket_class = classify_capacity(required_capacity);
 
     let mut bufs = {
-        let mut cache_guard = GPU_WARP_CACHE.lock().map_err(|e| format!("cache mutex poisoned: {}", e))?;
+        let mut cache_guard = GPU_WARP_CACHE
+            .lock()
+            .map_err(|e| format!("cache mutex poisoned: {}", e))?;
         let slot = select_bucket_mut(&mut cache_guard, bucket_class);
         if let Some(b) = slot.take() {
             if b.bins == bins && b.frames >= required_capacity {
@@ -656,8 +660,11 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
         let idx_u32 = lut.idx_floor[i] as u32;
         let frac_f32 = lut.frac[i] as f32;
         let clamped_u32 = u32::from(lut.clamped[i]);
-        
-        if bufs.host_idx_floor[i] != idx_u32 || bufs.host_frac[i] != frac_f32 || bufs.host_clamped[i] != clamped_u32 {
+
+        if bufs.host_idx_floor[i] != idx_u32
+            || bufs.host_frac[i] != frac_f32
+            || bufs.host_clamped[i] != clamped_u32
+        {
             bufs.host_idx_floor[i] = idx_u32;
             bufs.host_frac[i] = frac_f32;
             bufs.host_clamped[i] = clamped_u32;
@@ -666,9 +673,17 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
     }
 
     if lut_changed {
-        queue.write_buffer(&bufs.idx_buffer, 0, bytemuck::cast_slice(&bufs.host_idx_floor));
+        queue.write_buffer(
+            &bufs.idx_buffer,
+            0,
+            bytemuck::cast_slice(&bufs.host_idx_floor),
+        );
         queue.write_buffer(&bufs.frac_buffer, 0, bytemuck::cast_slice(&bufs.host_frac));
-        queue.write_buffer(&bufs.clamped_buffer, 0, bytemuck::cast_slice(&bufs.host_clamped));
+        queue.write_buffer(
+            &bufs.clamped_buffer,
+            0,
+            bytemuck::cast_slice(&bufs.host_clamped),
+        );
         GPU_WARP_LUT_UPLOADS.fetch_add(1, Ordering::Relaxed);
         bufs.lut_uploaded = true;
     }
@@ -723,9 +738,12 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
 
         let slice = bufs.readback.slice(0..input_bytes.len() as u64);
         let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res: Result<(), wgpu::BufferAsyncError>| {
-            let _ = tx.send(res);
-        });
+        slice.map_async(
+            wgpu::MapMode::Read,
+            move |res: Result<(), wgpu::BufferAsyncError>| {
+                let _ = tx.send(res);
+            },
+        );
         device.poll(wgpu::Maintain::Wait);
 
         let map_result = match rx.recv() {

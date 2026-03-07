@@ -113,7 +113,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
 
     times.sort_unstable();
     let median_elapsed = times[times.len() / 2];
-    
+
     // Calculate P95
     let p95_index = (times.len() as f64 * 0.95).floor() as usize;
     let p95_index = p95_index.min(times.len().saturating_sub(1));
@@ -123,13 +123,13 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
     let total_bins = total_frames * case.bins;
     let secs = median_elapsed.as_secs_f64();
     let p95_secs = p95_elapsed.as_secs_f64();
-    
+
     let us_per_frame = if total_frames > 0 {
         (secs * 1_000_000.0) / total_frames as f64
     } else {
         0.0
     };
-    
+
     let p95_us_per_frame = if total_frames > 0 {
         (p95_secs * 1_000_000.0) / total_frames as f64
     } else {
@@ -174,10 +174,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
             stats.map_errors,
             stats.cache_return_lock_failures
         );
-        println!(
-            "             chunk_dispatches={}",
-            stats.chunk_dispatches
-        );
+        println!("             chunk_dispatches={}", stats.chunk_dispatches);
     }
 
     Some(BenchResult {
@@ -256,7 +253,7 @@ fn main() {
         std::env::var("WARP_GPU_CHUNK_FRAMES").unwrap_or_else(|_| "4096".to_string())
     );
     println!("============================================================\n");
-    
+
     let mut results_cpu = Vec::new();
     let mut results_gpu = Vec::new();
 
@@ -281,11 +278,15 @@ fn main() {
 
         let median_ratio = gpu.median_us_per_frame / cpu.median_us_per_frame;
         let p95_ratio = gpu.p95_us_per_frame / cpu.p95_us_per_frame;
-        
+
         let median_pct = (median_ratio - 1.0) * 100.0;
         let p95_pct = (p95_ratio - 1.0) * 100.0;
 
-        let eval_str = if median_ratio < 1.0 { "FASTER" } else { "SLOWER" };
+        let eval_str = if median_ratio < 1.0 {
+            "FASTER"
+        } else {
+            "SLOWER"
+        };
 
         println!(
             "[{:<11}] GPU is {:>6.2}% {:<6} than CPU (p95: {:>+6.2}%)",
