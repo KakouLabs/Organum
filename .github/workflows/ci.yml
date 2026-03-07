@@ -12,8 +12,8 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  test:
-    name: Test & Lint
+  fmt:
+    name: Format Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -22,16 +22,47 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: rustfmt
 
-      - name: Cache dependencies
+      - name: Cache dependencies (fmt)
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-fmt
 
       - name: Format Check
         run: cargo fmt --all -- --check
 
-      - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+  test:
+    name: Test & Lint
+    needs: fmt
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [cpu, cpu-gpu]
+        include:
+          - variant: cpu
+            cargo_features: ""
+            cache_key: ci-cpu
+          - variant: cpu-gpu
+            cargo_features: "--features gpu-warp"
+            cache_key: ci-gpu
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Test
-        run: cargo test --workspace
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache dependencies (${{ matrix.variant }})
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.cache_key }}
+
+      - name: Clippy (${{ matrix.variant }})
+        run: cargo clippy --workspace ${{ matrix.cargo_features }} -- -D warnings
+
+      - name: Test (${{ matrix.variant }})
+        run: cargo test --workspace ${{ matrix.cargo_features }}

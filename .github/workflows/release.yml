@@ -65,6 +65,8 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.os }}-${{ matrix.variant }}
 
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.5
@@ -105,9 +107,42 @@ jobs:
           name: ${{ matrix.artifact_name }}-archive
           path: final-artifact/*
 
+  validate-assets:
+    name: Validate release assets
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Validate expected archive count and names
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp all-artifacts/*/* release-assets/
+          ls -1 release-assets
+
+          expected=6
+          actual=$(find release-assets -maxdepth 1 -type f | wc -l | tr -d ' ')
+          if [ "$actual" -ne "$expected" ]; then
+            echo "Expected $expected archives, found $actual"
+            exit 1
+          fi
+
+          test -f release-assets/organum-windows-cpu.zip
+          test -f release-assets/organum-windows-cpu-gpu.zip
+          test -f release-assets/organum-linux-cpu.tar.gz
+          test -f release-assets/organum-linux-cpu-gpu.tar.gz
+          test -f release-assets/organum-macos-cpu.tar.gz
+          test -f release-assets/organum-macos-cpu-gpu.tar.gz
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, validate-assets]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -126,9 +161,31 @@ jobs:
           mkdir -p release-assets
           cp all-artifacts/*/* release-assets/
 
+      - name: Generate release notes body
+        shell: bash
+        run: |
+          cat > RELEASE_NOTES.md <<'EOF'
+          ## Binaries
+
+          This release provides both variants per platform:
+
+          - `*-cpu`: default CPU build
+          - `*-cpu-gpu`: build with `gpu-warp` feature enabled
+
+          ### Assets
+
+          - `organum-windows-cpu.zip`
+          - `organum-windows-cpu-gpu.zip`
+          - `organum-linux-cpu.tar.gz`
+          - `organum-linux-cpu-gpu.tar.gz`
+          - `organum-macos-cpu.tar.gz`
+          - `organum-macos-cpu-gpu.tar.gz`
+          EOF
+
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
+          body_path: RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

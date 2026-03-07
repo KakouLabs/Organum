@@ -1,0 +1,102 @@
+name: Benchmark Regression
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  WARP_BENCH_GPU_MIN_FRAMES: "1"
+  WARP_GPU_CHUNK_FRAMES: "4096"
+  MAX_MEDIAN_RATIO: "1.25"
+  MAX_P95_RATIO: "1.35"
+
+jobs:
+  benchmark:
+    name: Run warp benchmark and gate regressions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark-gpu-warp
+
+      - name: Run benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifacts
+          cargo run --release --features gpu-warp --bin warp-bench | tee benchmark-artifacts/warp-bench.log
+
+      - name: Extract CSV and CI summary lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep '^CI_SUMMARY,' benchmark-artifacts/warp-bench.log > benchmark-artifacts/ci-summary.csv || true
+          awk '/^--- CSV Output ---/{flag=1;next}flag' benchmark-artifacts/warp-bench.log > benchmark-artifacts/warp-bench.csv || true
+
+      - name: Enforce regression threshold
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv
+          import os
+          import sys
+
+          path = "benchmark-artifacts/ci-summary.csv"
+          if not os.path.exists(path):
+              print("No ci-summary.csv found; failing")
+              sys.exit(1)
+
+          rows = []
+          with open(path, "r", encoding="utf-8") as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  parts = line.split(",")
+                  item = {}
+                  for p in parts[1:]:
+                      k, v = p.split("=", 1)
+                      item[k] = v
+                  rows.append(item)
+
+          if not rows:
+              print("No CI_SUMMARY rows found; failing")
+              sys.exit(1)
+
+          max_median = float(os.environ.get("MAX_MEDIAN_RATIO", "1.25"))
+          max_p95 = float(os.environ.get("MAX_P95_RATIO", "1.35"))
+
+          failed = []
+          for r in rows:
+              case = r.get("case", "unknown")
+              median = float(r.get("median_ratio", "999"))
+              p95 = float(r.get("p95_ratio", "999"))
+              if median > max_median or p95 > max_p95:
+                  failed.append((case, median, p95))
+
+          if failed:
+              print("Regression gate failed:")
+              for case, median, p95 in failed:
+                  print(f"  case={case} median_ratio={median:.4f} p95_ratio={p95:.4f}")
+              sys.exit(1)
+
+          print("Regression gate passed")
+          PY
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warp-bench-results
+          path: benchmark-artifacts/*
