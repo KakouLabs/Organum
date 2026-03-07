@@ -14,21 +14,45 @@ env:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build ${{ matrix.variant }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: windows-latest
-            artifact_name: organum-windows
+            variant: cpu
+            cargo_features: ""
+            artifact_name: organum-windows-cpu
+            asset_extension: .exe
+            archive_format: zip
+          - os: windows-latest
+            variant: cpu-gpu
+            cargo_features: "--features gpu-warp"
+            artifact_name: organum-windows-cpu-gpu
             asset_extension: .exe
             archive_format: zip
           - os: ubuntu-latest
-            artifact_name: organum-linux
+            variant: cpu
+            cargo_features: ""
+            artifact_name: organum-linux-cpu
+            asset_extension: ""
+            archive_format: tar.gz
+          - os: ubuntu-latest
+            variant: cpu-gpu
+            cargo_features: "--features gpu-warp"
+            artifact_name: organum-linux-cpu-gpu
             asset_extension: ""
             archive_format: tar.gz
           - os: macos-latest
-            artifact_name: organum-macos
+            variant: cpu
+            cargo_features: ""
+            artifact_name: organum-macos-cpu
+            asset_extension: ""
+            archive_format: tar.gz
+          - os: macos-latest
+            variant: cpu-gpu
+            cargo_features: "--features gpu-warp"
+            artifact_name: organum-macos-cpu-gpu
             asset_extension: ""
             archive_format: tar.gz
 
@@ -46,7 +70,7 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.5
 
       - name: Build organum engine and caching-tool
-        run: cargo build --release --workspace
+        run: cargo build --release --workspace ${{ matrix.cargo_features }}
 
 
 
@@ -57,6 +81,7 @@ jobs:
           cp target/release/organum-resampler${{ matrix.asset_extension }} artifacts/
           cp target/release/organum-wavtool${{ matrix.asset_extension }} artifacts/
           cp target/release/caching-tool${{ matrix.asset_extension }} artifacts/
+          printf "%s\n" "${{ matrix.variant }}" > artifacts/BUILD_VARIANT.txt
 
       - name: Archive (Windows)
         if: matrix.os == 'windows-latest'

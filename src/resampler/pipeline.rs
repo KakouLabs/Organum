@@ -104,6 +104,8 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
         timing.render_length,
         total_factor,
         target_base_f0,
+        config.gpu_warp_enabled,
+        config.gpu_warp_min_frames,
     );
 
     // Apply voiced/unvoiced aperiodicity shaping.

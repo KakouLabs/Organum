@@ -11,6 +11,8 @@ pub fn apply_warp_and_tilt(
     render_length: usize,
     total_factor: f64,
     target_base_f0: f64,
+    gpu_warp_enabled: bool,
+    gpu_warp_min_frames: usize,
 ) {
     let (do_tilt, tilt_intensity, fft_size_half, nyquist) = if target_base_f0 > 350.0 {
         (
@@ -34,6 +36,20 @@ pub fn apply_warp_and_tilt(
         None
     };
 
+    let warp_dispatch = synthesis::WarpDispatchConfig {
+        gpu_warp_enabled,
+        gpu_warp_min_frames,
+    };
+    let warp_backend = warp_dispatch.choose_backend(render_length);
+    if warp_lut.is_some() {
+        tracing::debug!(
+            "warp backend: {:?} (gpu_warp_enabled={}, gpu_warp_min_frames={}, render_length={})",
+            warp_backend,
+            gpu_warp_enabled,
+            gpu_warp_min_frames,
+            render_length,
+        );
+    }
     let tilt_factors: Option<Vec<f64>> = if do_tilt {
         let sp_len = sp_render.first().map(|f| f.len()).unwrap_or(0);
         let factors: Vec<f64> = (0..sp_len)
@@ -55,14 +71,24 @@ pub fn apply_warp_and_tilt(
     const PAR_THRESHOLD: usize = 2048;
 
     if let Some(ref lut) = warp_lut {
-        let apply_cpu_warp = |sp: &mut Vec<f64>| {
-            lut.apply(sp);
-        };
+        let mut gpu_applied = false;
+        if matches!(warp_backend, synthesis::WarpBackend::Gpu) {
+            match synthesis::try_apply_warp_batch_with_backend(
+                sp_render,
+                lut,
+                warp_backend,
+            ) {
+                Ok(()) => {
+                    gpu_applied = true;
+                }
+                Err(e) => {
+                    tracing::warn!("GPU warp failed, falling back to CPU: {}", e);
+                }
+            }
+        }
 
-        if render_length < PAR_THRESHOLD {
-            sp_render.iter_mut().for_each(apply_cpu_warp);
-        } else {
-            sp_render.par_iter_mut().for_each(apply_cpu_warp);
+        if !gpu_applied {
+            synthesis::apply_warp_cpu_batch(sp_render, lut);
         }
     }
 
