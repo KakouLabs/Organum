@@ -19,6 +19,7 @@ Organum is a resampler engine for UTAU and OpenUtau. WORLD vocoder 기반의 분
 ## Installation
 
 1. [Releases](https://github.com/KakouLabs/Organum/releases) 페이지에서 바이너리를 다운로드합니다.
+   - 각 플랫폼별로 `*-cpu`(기본 CPU 빌드)와 `*-cpu-gpu`(`gpu-warp` 기능 포함) 아카이브가 제공됩니다.
 2. OpenUtau의 `Resamplers` 디렉토리에 배치합니다.
 
 ## Usage

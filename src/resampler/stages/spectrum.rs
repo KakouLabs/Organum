@@ -89,15 +89,7 @@ pub fn apply_warp_and_tilt(
         }
 
         if !gpu_applied {
-            let apply_cpu_warp = |sp: &mut Vec<f64>| {
-                lut.apply(sp);
-            };
-
-            if render_length < PAR_THRESHOLD {
-                sp_render.iter_mut().for_each(apply_cpu_warp);
-            } else {
-                sp_render.par_iter_mut().for_each(apply_cpu_warp);
-            }
+            synthesis::apply_warp_cpu_batch(sp_render, lut);
         }
     }
 
