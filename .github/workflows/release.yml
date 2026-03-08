@@ -186,8 +186,9 @@ jobs:
             bash scripts/run-bench.sh
           done
 
-          python3 - <<'PY'
+          eval "$(python3 - <<'PY'"
           import os
+          import shlex
           from pathlib import Path
 
           def latest_pair(base: Path):
@@ -207,14 +208,23 @@ jobs:
           on_summary, on_log = latest_pair(Path("bench-results/simd-on"))
 
           env_path = Path(os.environ["GITHUB_ENV"])
+          exports = []
           with env_path.open("a", encoding="utf-8") as f:
               f.write(f"RELEASE_BENCH_SUMMARY_OFF={off_summary.as_posix()}\n")
               f.write(f"RELEASE_BENCH_SUMMARY_ON={on_summary.as_posix()}\n")
+              exports.append(("RELEASE_BENCH_SUMMARY_OFF", off_summary.as_posix()))
+              exports.append(("RELEASE_BENCH_SUMMARY_ON", on_summary.as_posix()))
               if off_log:
                   f.write(f"RELEASE_BENCH_LOG_OFF={off_log.as_posix()}\n")
+                  exports.append(("RELEASE_BENCH_LOG_OFF", off_log.as_posix()))
               if on_log:
                   f.write(f"RELEASE_BENCH_LOG_ON={on_log.as_posix()}\n")
+                  exports.append(("RELEASE_BENCH_LOG_ON", on_log.as_posix()))
+
+          for key, value in exports:
+              print(f"{key}={shlex.quote(value)}")
           PY
+          )"
 
           cp "${RELEASE_BENCH_SUMMARY_OFF}" release-assets/
           cp "${RELEASE_BENCH_SUMMARY_ON}" release-assets/
