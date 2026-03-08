@@ -8,3 +8,5 @@ simd-bench/
 simd-validation/
 __pycache__
 **/__pycache__
+audios/simd_test
+samples.txt
