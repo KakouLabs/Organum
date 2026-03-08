@@ -3,3 +3,8 @@
 **/*.rs.bk
 Cargo.lock
 dist
+bench-results/
+simd-bench/
+simd-validation/
+__pycache__
+**/__pycache__

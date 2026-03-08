@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="./assets/ORGANUM.png" width="500" />
   <h1>Organum</h1>
   <p>UTAU resampler engine written in Rust</p>
 
@@ -20,6 +21,7 @@ Organum is a resampler engine for UTAU and OpenUtau. WORLD vocoder 기반의 분
 
 1. [Releases](https://github.com/KakouLabs/Organum/releases) 페이지에서 바이너리를 다운로드합니다.
    - 각 플랫폼별로 `*-cpu`(기본 CPU 빌드)와 `*-cpu-gpu`(`gpu-warp` 기능 포함) 아카이브가 제공됩니다.
+   - 최신 릴리즈에는 벤치 요약/로그 asset이 함께 포함될 수 있습니다.
 2. OpenUtau의 `Resamplers` 디렉토리에 배치합니다.
 
 ## Usage
@@ -61,11 +63,17 @@ feature_extension: "ogc"
 sample_rate: 44100
 frame_period: 5.0
 zstd_compression_level: 3
+compressor_threshold: 0.85
+compressor_limit: 0.99
 gpu_warp_enabled: false
 gpu_warp_min_frames: 2048
 ```
 
+캐시는 포맷/스키마/엔진 버전 및 주요 설정(`sample_rate`, `frame_period`)이 현재 실행 값과 다르면 자동으로 무효화 후 재생성됩니다.
+
 자세한 내용은 [Configuration Guide](docs/CONFIGURATION.md) 참고.
+
+SIMD 검증/벤치 가이드는 [SIMD Validation](docs/SIMD_VALIDATION.md) 참고.
 
 ## Build
 
@@ -106,7 +114,7 @@ Kasane Teto UTAU voicebank 기준, 약 500ms 세그먼트 처리 시간.
 
 ## Flags
 
-렌더링 파라미터를 플래그로 제어할 수 있습니다. 상세 레퍼런스: [Flags](docs/FLAGS.md)
+렌더링 파라미터를 플래그로 제어할 수 있습니다. `P`와 `y`는 동일한 Peak 파라미터 별칭입니다. 상세 레퍼런스: [Flags](docs/FLAGS.md)
 
 ## License
 

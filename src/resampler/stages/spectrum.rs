@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 
-use crate::resampler::{common::consts, synthesis};
+use crate::resampler::{common::consts, device, device::Device, synthesis};
 
 pub fn apply_warp_and_tilt(
     sp_render: &mut [Vec<f64>],
@@ -8,8 +8,7 @@ pub fn apply_warp_and_tilt(
     render_length: usize,
     total_factor: f64,
     target_base_f0: f64,
-    gpu_warp_enabled: bool,
-    gpu_warp_min_frames: usize,
+    device: Device,
 ) {
     let (do_tilt, tilt_intensity, fft_size_half, nyquist) = if target_base_f0 > 350.0 {
         (
@@ -37,17 +36,11 @@ pub fn apply_warp_and_tilt(
         None
     };
 
-    let warp_dispatch = synthesis::WarpDispatchConfig {
-        gpu_warp_enabled,
-        gpu_warp_min_frames,
-    };
-    let warp_backend = warp_dispatch.choose_backend(render_length);
+    let warp_backend = device.as_warp_backend();
     if warp_lut.is_some() {
         tracing::debug!(
-            "warp backend: {:?} (gpu_warp_enabled={}, gpu_warp_min_frames={}, render_length={})",
+            "warp backend: {:?} (render_length={})",
             warp_backend,
-            gpu_warp_enabled,
-            gpu_warp_min_frames,
             render_length,
         );
     }
@@ -80,6 +73,7 @@ pub fn apply_warp_and_tilt(
                 }
                 Err(e) => {
                     tracing::warn!("GPU warp failed, falling back to CPU: {}", e);
+                    device::mark_gpu_unavailable(&format!("warp stage error: {}", e));
                 }
             }
         }

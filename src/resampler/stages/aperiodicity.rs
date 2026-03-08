@@ -1,15 +1,28 @@
-use rayon::prelude::*;
+use crate::resampler::{device, device::Device, synthesis};
+
+pub struct AperiodicityStageParams {
+    pub scaled_cons_sec: f64,
+    pub fps: f64,
+    pub h_flag: f64,
+    pub c_flag: f64,
+    pub b_flag: f64,
+    pub device: Device,
+}
 
 pub fn apply_aperiodicity_mods(
     ap_render: &mut [Vec<f64>],
     vuv_render: &[bool],
-    render_length: usize,
-    scaled_cons_sec: f64,
-    fps: f64,
-    h_flag: f64,
-    c_flag: f64,
-    b_flag: f64,
+    params: &AperiodicityStageParams,
 ) {
+    let AperiodicityStageParams {
+        scaled_cons_sec,
+        fps,
+        h_flag,
+        c_flag,
+        b_flag,
+        device,
+    } = *params;
+
     let h_factor = if h_flag > 0.0 {
         (h_flag.clamp(0.0, 100.0) / 100.0).powi(2)
     } else {
@@ -29,44 +42,31 @@ pub fn apply_aperiodicity_mods(
         0
     };
 
-    let apply_ap = |(i, frame): (usize, &mut Vec<f64>)| {
-        let is_voiced = vuv_render.get(i).copied().unwrap_or(false);
-
-        let onset_breath_factor = if i < onset_fadein_frames {
-            let progress = i as f64 / onset_fadein_frames as f64;
-            1.0 - (1.0 - (progress * std::f64::consts::PI).cos()) * 0.5
-        } else {
-            0.0
-        };
-
-        for a in frame.iter_mut() {
-            if is_voiced {
-                if h_factor > 0.0 {
-                    *a *= 1.0 - h_factor;
-                }
-            } else if c_factor > 0.0 {
-                *a *= 1.0 - c_factor;
+    if matches!(device, Device::Gpu) {
+        match synthesis::try_apply_aperiodicity_gpu_batch(
+            ap_render,
+            vuv_render,
+            onset_fadein_frames,
+            h_factor,
+            c_factor,
+            breathiness_factor,
+            b_scale,
+        ) {
+            Ok(()) => return,
+            Err(e) => {
+                tracing::warn!("GPU aperiodicity failed, falling back to CPU: {}", e);
+                device::mark_gpu_unavailable(&format!("aperiodicity stage error: {}", e));
             }
-
-            if breathiness_factor > 0.0 {
-                *a += (1.0 - *a) * breathiness_factor;
-            } else if breathiness_factor < 0.0 {
-                *a *= b_scale;
-            }
-
-            if onset_breath_factor > 0.0 {
-                *a += (1.0 - *a) * onset_breath_factor;
-            }
-
-            *a = a.clamp(0.0, 1.0);
         }
-    };
-
-    const PAR_THRESHOLD: usize = 2048;
-
-    if render_length < PAR_THRESHOLD {
-        ap_render.iter_mut().enumerate().for_each(apply_ap);
-    } else {
-        ap_render.par_iter_mut().enumerate().for_each(apply_ap);
     }
+
+    synthesis::apply_aperiodicity_cpu_batch(
+        ap_render,
+        vuv_render,
+        onset_fadein_frames,
+        h_factor,
+        c_factor,
+        breathiness_factor,
+        b_scale,
+    );
 }

@@ -53,6 +53,14 @@ path = "src/bin/resampler.rs"
 name = "organum-wavtool"
 path = "src/bin/wavtool.rs"
 
+[[bin]]
+name = "warp-bench"
+path = "src/bin/bench/warp-bench.rs"
+
+[[bin]]
+name = "ap-bench"
+path = "src/bin/bench/ap-bench.rs"
+
 [profile.release]
 opt-level = "z"
 lto = true

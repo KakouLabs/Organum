@@ -22,6 +22,8 @@ frame_period: 5.0
 zstd_compression_level: 3
 compressor_threshold: 0.85
 compressor_limit: 0.99
+gpu_warp_enabled: false
+gpu_warp_min_frames: 2048
 EOF
 fi
 

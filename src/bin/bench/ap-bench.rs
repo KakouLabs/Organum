@@ -1,6 +1,7 @@
+use organum::resampler::device::DevicePolicy;
 use organum::resampler::synthesis::{
-    gpu_warp_stats, reset_gpu_warp_stats, try_apply_warp_batch_with_backend, WarpBackend,
-    WarpDispatchConfig, WarpLut,
+    apply_aperiodicity_cpu_batch, gpu_warp_stats, reset_gpu_warp_stats,
+    try_apply_aperiodicity_gpu_batch, WarpBackend,
 };
 use std::time::Instant;
 
@@ -9,23 +10,26 @@ struct BenchCase {
     name: &'static str,
     frames: usize,
     bins: usize,
-    factor: f64,
     warmup: usize,
     iterations: usize,
     repeats: usize,
 }
 
-fn make_spectrum(frames: usize, bins: usize) -> Vec<Vec<f64>> {
+fn make_ap(frames: usize, bins: usize) -> Vec<Vec<f64>> {
     (0..frames)
         .map(|i| {
             (0..bins)
                 .map(|b| {
-                    let x = (i as f64 * 0.017) + (b as f64 * 0.0031);
-                    (x.sin().abs() + 1e-6) * (1.0 + (b as f64 / bins as f64) * 0.2)
+                    let x = (i as f64 * 0.0113) + (b as f64 * 0.0057);
+                    (0.45 + 0.35 * x.sin() + 0.20 * x.cos()).clamp(0.0, 1.0)
                 })
                 .collect::<Vec<f64>>()
         })
         .collect()
+}
+
+fn make_vuv(frames: usize) -> Vec<bool> {
+    (0..frames).map(|i| (i % 7) < 5).collect()
 }
 
 struct BenchResult {
@@ -44,7 +48,6 @@ struct BenchResult {
     cache_misses: u64,
     cache_reallocs: u64,
     buffer_allocations: u64,
-    lut_uploads: u64,
     map_errors: u64,
     cache_return_lock_failures: u64,
     chunk_dispatches: u64,
@@ -57,7 +60,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
         return None;
     }
 
-    let threshold = std::env::var("WARP_BENCH_GPU_MIN_FRAMES")
+    let threshold = std::env::var("AP_BENCH_GPU_MIN_FRAMES")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(1);
@@ -65,28 +68,54 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
     let chosen = match backend {
         WarpBackend::Cpu => WarpBackend::Cpu,
         WarpBackend::Gpu => {
-            let dispatch = WarpDispatchConfig {
+            let policy = DevicePolicy {
                 gpu_warp_enabled: true,
                 gpu_warp_min_frames: threshold,
             };
-            dispatch.choose_backend(case.frames)
+            policy.select(case.frames).as_warp_backend()
         }
     };
 
-    let lut = WarpLut::new(case.bins, 44_100.0, case.factor);
-    let original = make_spectrum(case.frames, case.bins);
+    let original = make_ap(case.frames, case.bins);
+    let vuv = make_vuv(case.frames);
     let mut work = original.clone();
+
+    let onset_fadein_frames = 32usize.min(case.frames);
+    let h_factor = 0.20;
+    let c_factor = 0.25;
+    let breathiness_factor = 0.10;
+    let b_scale = 0.8;
 
     if matches!(chosen, WarpBackend::Gpu) {
         reset_gpu_warp_stats();
     }
 
-    // Warmup
     for _ in 0..case.warmup {
         for (dst, src) in work.iter_mut().zip(original.iter()) {
             dst.copy_from_slice(src);
         }
-        let _ = try_apply_warp_batch_with_backend(work.as_mut_slice(), &lut, chosen);
+
+        if matches!(chosen, WarpBackend::Gpu) {
+            let _ = try_apply_aperiodicity_gpu_batch(
+                work.as_mut_slice(),
+                &vuv,
+                onset_fadein_frames,
+                h_factor,
+                c_factor,
+                breathiness_factor,
+                b_scale,
+            );
+        } else {
+            apply_aperiodicity_cpu_batch(
+                work.as_mut_slice(),
+                &vuv,
+                onset_fadein_frames,
+                h_factor,
+                c_factor,
+                breathiness_factor,
+                b_scale,
+            );
+        }
     }
 
     let mut times = Vec::with_capacity(case.repeats);
@@ -98,14 +127,40 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                 dst.copy_from_slice(src);
             }
 
-            if let Err(e) = try_apply_warp_batch_with_backend(work.as_mut_slice(), &lut, chosen) {
-                eprintln!(
-                    "[{:<11} {:?}] gpu batch failed, fallback to cpu: {}",
-                    case.name, chosen, e
-                );
-                for frame in work.iter_mut() {
-                    lut.apply(frame);
+            if matches!(chosen, WarpBackend::Gpu) {
+                if let Err(e) = try_apply_aperiodicity_gpu_batch(
+                    work.as_mut_slice(),
+                    &vuv,
+                    onset_fadein_frames,
+                    h_factor,
+                    c_factor,
+                    breathiness_factor,
+                    b_scale,
+                ) {
+                    eprintln!(
+                        "[{:<11} {:?}] gpu batch failed, fallback to cpu: {}",
+                        case.name, chosen, e
+                    );
+                    apply_aperiodicity_cpu_batch(
+                        work.as_mut_slice(),
+                        &vuv,
+                        onset_fadein_frames,
+                        h_factor,
+                        c_factor,
+                        breathiness_factor,
+                        b_scale,
+                    );
                 }
+            } else {
+                apply_aperiodicity_cpu_batch(
+                    work.as_mut_slice(),
+                    &vuv,
+                    onset_fadein_frames,
+                    h_factor,
+                    c_factor,
+                    breathiness_factor,
+                    b_scale,
+                );
             }
         }
         times.push(start.elapsed());
@@ -113,8 +168,6 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
 
     times.sort_unstable();
     let median_elapsed = times[times.len() / 2];
-
-    // Calculate P95
     let p95_index = (times.len() as f64 * 0.95).floor() as usize;
     let p95_index = p95_index.min(times.len().saturating_sub(1));
     let p95_elapsed = times[p95_index];
@@ -165,12 +218,11 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
 
     if matches!(chosen, WarpBackend::Gpu) {
         println!(
-            "             cache hits/misses/reallocs={}/{}/{} allocs={} lut_uploads={} map_errors={} return_lock_failures={}",
+            "             cache hits/misses/reallocs={}/{}/{} allocs={} map_errors={} return_lock_failures={}",
             stats.cache_hits,
             stats.cache_misses,
             stats.cache_reallocs,
             stats.buffer_allocations,
-            stats.lut_uploads,
             stats.map_errors,
             stats.cache_return_lock_failures
         );
@@ -193,7 +245,6 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
         cache_misses: stats.cache_misses,
         cache_reallocs: stats.cache_reallocs,
         buffer_allocations: stats.buffer_allocations,
-        lut_uploads: stats.lut_uploads,
         map_errors: stats.map_errors,
         cache_return_lock_failures: stats.cache_return_lock_failures,
         chunk_dispatches: stats.chunk_dispatches,
@@ -206,8 +257,7 @@ fn main() {
         BenchCase {
             name: "short",
             frames: 512,
-            bins: 2049,
-            factor: 1.10,
+            bins: 1024,
             warmup: 5,
             iterations: 120,
             repeats: 5,
@@ -215,8 +265,7 @@ fn main() {
         BenchCase {
             name: "medium",
             frames: 2048,
-            bins: 2049,
-            factor: 1.10,
+            bins: 1024,
             warmup: 3,
             iterations: 30,
             repeats: 5,
@@ -224,8 +273,7 @@ fn main() {
         BenchCase {
             name: "long",
             frames: 8192,
-            bins: 2049,
-            factor: 1.10,
+            bins: 1024,
             warmup: 2,
             iterations: 16,
             repeats: 5,
@@ -233,8 +281,7 @@ fn main() {
         BenchCase {
             name: "stress_mix",
             frames: 4096,
-            bins: 2049,
-            factor: 1.10,
+            bins: 1024,
             warmup: 2,
             iterations: 20,
             repeats: 10,
@@ -242,15 +289,15 @@ fn main() {
     ];
 
     println!("============================================================");
-    println!(" organum warp_spectrum micro-benchmark");
+    println!(" organum aperiodicity micro-benchmark");
     println!(" config: GPU path uses wgpu when built with --features gpu-warp");
     println!(
-        " config: WARP_BENCH_GPU_MIN_FRAMES={}",
-        std::env::var("WARP_BENCH_GPU_MIN_FRAMES").unwrap_or_else(|_| "1".to_string())
+        " config: AP_BENCH_GPU_MIN_FRAMES={}",
+        std::env::var("AP_BENCH_GPU_MIN_FRAMES").unwrap_or_else(|_| "1".to_string())
     );
     println!(
         " config: WARP_GPU_CHUNK_FRAMES={}",
-        std::env::var("WARP_GPU_CHUNK_FRAMES").unwrap_or_else(|_| "4096".to_string())
+        std::env::var("WARP_GPU_CHUNK_FRAMES").unwrap_or_else(|_| "auto(full-frame)".to_string())
     );
     println!("============================================================\n");
 
@@ -278,10 +325,6 @@ fn main() {
 
         let median_ratio = gpu.median_us_per_frame / cpu.median_us_per_frame;
         let p95_ratio = gpu.p95_us_per_frame / cpu.p95_us_per_frame;
-
-        let median_pct = (median_ratio - 1.0) * 100.0;
-        let p95_pct = (p95_ratio - 1.0) * 100.0;
-
         let eval_str = if median_ratio < 1.0 {
             "FASTER"
         } else {
@@ -291,11 +334,10 @@ fn main() {
         println!(
             "[{:<11}] GPU is {:>6.2}% {:<6} than CPU (p95: {:>+6.2}%)",
             cpu.name,
-            median_pct.abs(),
+            ((median_ratio - 1.0) * 100.0).abs(),
             eval_str,
-            p95_pct
+            (p95_ratio - 1.0) * 100.0
         );
-
         println!(
             "CI_SUMMARY,case={},threshold={},median_ratio={:.4},p95_ratio={:.4}",
             cpu.name, gpu.chosen_threshold, median_ratio, p95_ratio
@@ -325,10 +367,10 @@ fn main() {
     }
 
     println!("\n--- CSV Output ---");
-    println!("name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches");
+    println!("name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches");
     for r in results_cpu.iter().chain(results_gpu.iter()) {
         println!(
-            "{},{:?},{},{},{},{},{},{:.4},{:.4},{:.2},{:.2},{:.2},{},{},{},{},{},{},{},{}",
+            "{},{:?},{},{},{},{},{},{:.4},{:.4},{:.2},{:.2},{:.2},{},{},{},{},{},{},{}",
             r.name,
             r.backend,
             r.frames,
@@ -345,7 +387,6 @@ fn main() {
             r.cache_misses,
             r.cache_reallocs,
             r.buffer_allocations,
-            r.lut_uploads,
             r.map_errors,
             r.cache_return_lock_failures,
             r.chunk_dispatches

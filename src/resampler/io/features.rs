@@ -4,12 +4,39 @@ use crate::resampler::{
     types::{FeatureCacheV4, FeatureCacheV4Delta, FeatureCacheV4Quantized, WorldFeatures},
 };
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
 const CACHE_MAGIC: [u8; 4] = *b"ORGN";
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
+const CACHE_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CacheHeader {
+    format_version: u32,
+    schema_version: u32,
+    sample_rate: u32,
+    frame_period_micros: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CachePayload {
+    engine_version: String,
+    payload: FeatureCacheV4,
+}
+
+impl CacheHeader {
+    fn from_config(config: &crate::config::OrganumConfig) -> Self {
+        Self {
+            format_version: CACHE_VERSION,
+            schema_version: CACHE_SCHEMA_VERSION,
+            sample_rate: config.sample_rate,
+            frame_period_micros: (config.frame_period * 1000.0).round() as u32,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Strategy {
@@ -19,23 +46,56 @@ enum Strategy {
 }
 
 /// Returns true when cache file has the current magic/version header.
-pub fn is_feature_cache_compatible(path: &Path) -> bool {
-    let mut f = match File::open(path) {
-        Ok(file) => file,
-        Err(_) => return false,
-    };
+pub fn is_feature_cache_compatible(path: &Path, config: &crate::config::OrganumConfig) -> bool {
+    let expected = CacheHeader::from_config(config);
+    match read_cache_header(path) {
+        Ok(header) => header == expected,
+        Err(_) => false,
+    }
+}
+
+fn read_cache_header(path: &Path) -> Result<CacheHeader> {
+    let mut f = File::open(path)?;
 
     let mut magic = [0u8; 4];
     if f.read_exact(&mut magic).is_err() || magic != CACHE_MAGIC {
-        return false;
+        anyhow::bail!(
+            "Invalid cache magic (expected {:?}, got {:?})",
+            CACHE_MAGIC,
+            magic
+        );
     }
 
     let mut version_bytes = [0u8; 4];
     if f.read_exact(&mut version_bytes).is_err() {
-        return false;
+        anyhow::bail!("Failed to read cache format version");
     }
+    let format_version = u32::from_le_bytes(version_bytes);
 
-    u32::from_le_bytes(version_bytes) == CACHE_VERSION
+    let mut schema_bytes = [0u8; 4];
+    if f.read_exact(&mut schema_bytes).is_err() {
+        anyhow::bail!("Failed to read cache schema version");
+    }
+    let schema_version = u32::from_le_bytes(schema_bytes);
+
+    let mut sample_rate_bytes = [0u8; 4];
+    if f.read_exact(&mut sample_rate_bytes).is_err() {
+        anyhow::bail!("Failed to read cache sample rate");
+    }
+    let sample_rate = u32::from_le_bytes(sample_rate_bytes);
+
+    let mut frame_period_bytes = [0u8; 4];
+    if f.read_exact(&mut frame_period_bytes).is_err() {
+        anyhow::bail!("Failed to read cache frame period metadata");
+    }
+    let frame_period_micros = u32::from_le_bytes(frame_period_bytes);
+
+    Ok(CacheHeader {
+        format_version,
+        schema_version,
+        sample_rate,
+        frame_period_micros,
+    })
 }
 
 pub fn generate_features(
@@ -105,42 +165,80 @@ pub fn generate_features(
     })
 }
 
-pub fn read_features(path: &Path) -> Result<WorldFeatures> {
+pub fn read_features(path: &Path, config: &crate::config::OrganumConfig) -> Result<WorldFeatures> {
+    let expected = CacheHeader::from_config(config);
+    let header = read_cache_header(path)?;
+    if header.format_version != expected.format_version {
+        anyhow::bail!(
+            "Cache format version mismatch (expected {}, got {})",
+            expected.format_version,
+            header.format_version
+        );
+    }
+    if header.schema_version != expected.schema_version {
+        anyhow::bail!(
+            "Cache schema version mismatch (expected {}, got {})",
+            expected.schema_version,
+            header.schema_version
+        );
+    }
+    if header.sample_rate != expected.sample_rate {
+        anyhow::bail!(
+            "Cache sample_rate mismatch (expected {}, got {})",
+            expected.sample_rate,
+            header.sample_rate
+        );
+    }
+    if header.frame_period_micros != expected.frame_period_micros {
+        anyhow::bail!(
+            "Cache frame_period mismatch (expected {}us, got {}us)",
+            expected.frame_period_micros,
+            header.frame_period_micros
+        );
+    }
+
     let mut f = File::open(path)?;
 
-    let mut magic = [0u8; 4];
-    f.read_exact(&mut magic)?;
-    if magic != CACHE_MAGIC {
-        anyhow::bail!(
-            "Invalid cache magic (expected {:?}, got {:?})",
-            CACHE_MAGIC,
-            magic
-        );
-    }
-
-    let mut version_bytes = [0u8; 4];
-    f.read_exact(&mut version_bytes)?;
-    let version = u32::from_le_bytes(version_bytes);
-    if version != CACHE_VERSION {
-        anyhow::bail!(
-            "Cache version mismatch (expected {}, got {})",
-            CACHE_VERSION,
-            version
-        );
-    }
+    let mut header_prefix = [0u8; 20];
+    f.read_exact(&mut header_prefix)?;
 
     let mut decoder = zstd::stream::Decoder::new(f)?;
-    let cached: FeatureCacheV4 = bincode::deserialize_from(&mut decoder)?;
-    cached.try_into()
+    let cached: CachePayload = bincode::deserialize_from(&mut decoder)?;
+
+    let expected_engine_version = env!("CARGO_PKG_VERSION");
+    if cached.engine_version != expected_engine_version {
+        anyhow::bail!(
+            "Cache engine version mismatch (expected {}, got {})",
+            expected_engine_version,
+            cached.engine_version
+        );
+    }
+
+    cached.payload.try_into()
 }
 
-pub fn write_features(path: &Path, features: &WorldFeatures, compression_level: i32) -> Result<()> {
+pub fn write_features(
+    path: &Path,
+    features: &WorldFeatures,
+    compression_level: i32,
+    config: &crate::config::OrganumConfig,
+) -> Result<()> {
+    let header = CacheHeader::from_config(config);
     let mut f = File::create(path)?;
     f.write_all(&CACHE_MAGIC)?;
-    f.write_all(&CACHE_VERSION.to_le_bytes())?;
+    f.write_all(&header.format_version.to_le_bytes())?;
+    f.write_all(&header.schema_version.to_le_bytes())?;
+    f.write_all(&header.sample_rate.to_le_bytes())?;
+    f.write_all(&header.frame_period_micros.to_le_bytes())?;
 
-    let q_payload = FeatureCacheV4::Quantized(FeatureCacheV4Quantized::from(features));
-    let d_payload = FeatureCacheV4::DeltaQuantized(FeatureCacheV4Delta::from(features));
+    let q_payload = CachePayload {
+        engine_version: env!("CARGO_PKG_VERSION").to_string(),
+        payload: FeatureCacheV4::Quantized(FeatureCacheV4Quantized::from(features)),
+    };
+    let d_payload = CachePayload {
+        engine_version: env!("CARGO_PKG_VERSION").to_string(),
+        payload: FeatureCacheV4::DeltaQuantized(FeatureCacheV4Delta::from(features)),
+    };
 
     match estimate_best_strategy(features) {
         Strategy::Quantized => {
@@ -181,7 +279,7 @@ pub fn write_features(path: &Path, features: &WorldFeatures, compression_level: 
     Ok(())
 }
 
-fn compress_payload(payload: &FeatureCacheV4, compression_level: i32) -> Result<Vec<u8>> {
+fn compress_payload(payload: &CachePayload, compression_level: i32) -> Result<Vec<u8>> {
     let mut encoder = zstd::stream::Encoder::new(Vec::new(), compression_level)?;
     bincode::serialize_into(&mut encoder, payload)?;
     Ok(encoder.finish()?)
@@ -291,12 +389,13 @@ mod tests {
 
         let mut temp_path = env::temp_dir();
         temp_path.push("organum_test_features.ogc");
+        let config = crate::config::OrganumConfig::default();
 
         // write
-        write_features(&temp_path, &features, 3)?;
+        write_features(&temp_path, &features, 3, &config)?;
 
         // read
-        let read_back = read_features(&temp_path)?;
+        let read_back = read_features(&temp_path, &config)?;
 
         assert!(approx_eq(read_back.base_f0, features.base_f0, 1e-4));
         for (a, b) in read_back.f0.iter().zip(features.f0.iter()) {
@@ -312,7 +411,11 @@ mod tests {
                 assert!(approx_eq(*a, *b, 1e-3));
             }
         }
-        assert!(is_feature_cache_compatible(&temp_path));
+        assert!(is_feature_cache_compatible(&temp_path, &config));
+
+        let mut incompatible = config.clone();
+        incompatible.sample_rate = 48000;
+        assert!(!is_feature_cache_compatible(&temp_path, &incompatible));
 
         // clean up
         let _ = std::fs::remove_file(temp_path);

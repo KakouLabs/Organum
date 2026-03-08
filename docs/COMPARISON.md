@@ -6,6 +6,9 @@ Organum과 다른 UTAU/OpenUtau 엔진과의 비교.
 
 Kasane Teto UTAU voicebank 기준, 약 500ms 세그먼트 처리 시간.
 
+> [!NOTE]
+> 아래 수치는 대표 예시이며, 실제 성능은 하드웨어/설정/입력 길이에 따라 달라질 수 있습니다. 최신 수치는 릴리즈의 벤치 요약 asset을 참고하세요.
+
 | Engine | Language | Multithreading | Avg. Time |
 | :--- | :--- | :--- | :--- |
 | Organum | Rust | Yes (Rayon) | ~25ms |

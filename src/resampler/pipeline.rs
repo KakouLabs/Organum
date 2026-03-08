@@ -6,9 +6,10 @@ use crate::resampler::{
     common::consts,
     common::flags::parse_flags,
     common::utils::{self, interpolate_frames, to_feature_path},
+    device::DevicePolicy,
     io::audio::{read_audio, write_audio},
     io::features::{generate_features, read_features, write_features},
-    stages::aperiodicity::apply_aperiodicity_mods,
+    stages::aperiodicity::{apply_aperiodicity_mods, AperiodicityStageParams},
     stages::dynamics::apply_dynamics,
     stages::pitch::generate_pitch,
     stages::spectrum::apply_warp_and_tilt,
@@ -30,7 +31,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
 
     let start_features = Instant::now();
     let features = if feature_path.exists() {
-        match read_features(&feature_path) {
+        match read_features(&feature_path, config) {
             Ok(f) => {
                 tracing::info!("cache hit: loaded features from {:?}", feature_path);
                 f
@@ -43,7 +44,12 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
                 );
                 let audio = read_audio(input_path, sample_rate)?;
                 let features = generate_features(&audio, sample_rate, frame_period)?;
-                let _ = write_features(&feature_path, &features, config.zstd_compression_level);
+                let _ = write_features(
+                    &feature_path,
+                    &features,
+                    config.zstd_compression_level,
+                    config,
+                );
                 features
             }
         }
@@ -51,7 +57,12 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
         tracing::info!("cache miss: no cache file for {:?}", input_path);
         let audio = read_audio(input_path, sample_rate)?;
         let features = generate_features(&audio, sample_rate, frame_period)?;
-        let _ = write_features(&feature_path, &features, config.zstd_compression_level);
+        let _ = write_features(
+            &feature_path,
+            &features,
+            config.zstd_compression_level,
+            config,
+        );
         features
     };
 
@@ -98,26 +109,28 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let target_base_f0 = utils::midi_to_hz(target_midi);
 
     // Apply spectral warp and high-frequency tilt.
+    let device = DevicePolicy::from_config(config).select(timing.render_length);
     apply_warp_and_tilt(
         &mut sp_render,
         sample_rate,
         timing.render_length,
         total_factor,
         target_base_f0,
-        config.gpu_warp_enabled,
-        config.gpu_warp_min_frames,
+        device,
     );
 
     // Apply voiced/unvoiced aperiodicity shaping.
     apply_aperiodicity_mods(
         &mut ap_render,
         &timing.vuv_render,
-        timing.render_length,
-        timing.scaled_cons_sec,
-        fps,
-        parsed_flags.h,
-        parsed_flags.c,
-        parsed_flags.b,
+        &AperiodicityStageParams {
+            scaled_cons_sec: timing.scaled_cons_sec,
+            fps,
+            h_flag: parsed_flags.h,
+            c_flag: parsed_flags.c,
+            b_flag: parsed_flags.b,
+            device,
+        },
     );
 
     // Generate render-time F0 trajectory.

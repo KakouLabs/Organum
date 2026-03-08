@@ -4,6 +4,8 @@ use std::fs;
 use std::path::Path;
 use tracing_subscriber::EnvFilter;
 
+const WAVTOOL_USAGE: &str = "Usage:\n  organum-wavtool [--verbose] [--log-format pretty|json] <outfile> <infile> <skip_ms> <length_ms> [p1 p2 p3] [v1 v2 v3 v4] [overlap] [consonant] [blank]\n\nExamples:\n  organum-wavtool out.wav in.wav 0 480\n  organum-wavtool out.wav in.wav 0 480 5 35 35 0 100 100 0 20\n  organum-wavtool --json request.json\n\nNotes:\n  - All timing values are in milliseconds\n  - If length_ms is 0, source length is used\n";
+
 fn init_tracing(verbose: bool, json_logs: bool) {
     let env_filter = if verbose {
         EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into())
@@ -60,6 +62,23 @@ fn main() {
     let (args, verbose, json_logs) = parse_runtime_log_options(raw_args);
     init_tracing(verbose, json_logs);
 
+    if args.len() == 2 && (args[1] == "--help" || args[1] == "-h") {
+        println!("{}", WAVTOOL_USAGE);
+        return;
+    }
+
+    let parse_f32_arg = |idx: usize, name: &str, default: f32| -> Result<f32, String> {
+        match args.get(idx) {
+            Some(raw) => raw.parse::<f32>().map_err(|_| {
+                format!(
+                    "Invalid {} '{}'. Expected a number (ms for timing args).\n\n{}",
+                    name, raw, WAVTOOL_USAGE
+                )
+            }),
+            None => Ok(default),
+        }
+    };
+
     // Check for JSON mode
     if args.len() == 3 && args[1] == "--json" {
         let json_str = fs::read_to_string(&args[2]).expect("Failed to read JSON file");
@@ -69,32 +88,72 @@ fn main() {
             std::process::exit(1);
         }
         return;
+    } else if args.get(1).map(String::as_str) == Some("--json") {
+        eprintln!(
+            "Invalid --json invocation. Expected: organum-wavtool --json <request.json>\n\n{}",
+            WAVTOOL_USAGE
+        );
+        std::process::exit(1);
     }
 
     if args.len() < 5 {
-        eprintln!("Usage: wavtool <outfile> <infile> <skip_ms> <length_ms> [p1 p2 p3] [v1 v2 v3 v4] [overlap] [consonant] [blank]");
+        eprintln!("{}", WAVTOOL_USAGE);
         std::process::exit(1);
     }
 
     let outfile = args[1].clone();
     let infile = args[2].clone();
 
-    let skip_ms: f32 = args[3].parse().unwrap_or(0.0);
+    let skip_ms = match parse_f32_arg(3, "skip_ms", 0.0) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{}", msg);
+            std::process::exit(1);
+        }
+    };
     let len_raw = args.get(4).cloned().unwrap_or_else(|| "0".to_string());
 
-    let get_arg = |i: usize| -> f32 { args.get(i).and_then(|s| s.parse().ok()).unwrap_or(0.0) };
+    let get_arg = |i: usize, name: &str| -> f32 {
+        match parse_f32_arg(i, name, 0.0) {
+            Ok(v) => v,
+            Err(msg) => {
+                eprintln!("{}", msg);
+                std::process::exit(1);
+            }
+        }
+    };
 
-    let p1 = get_arg(5);
-    let p2 = get_arg(6);
-    let p3 = get_arg(7);
-    let v1 = get_arg(8);
-    let v2 = get_arg(9);
-    let v3 = get_arg(10);
-    let v4 = if args.len() > 11 { get_arg(11) } else { 0.0 };
-    let ovr = if args.len() > 12 { get_arg(12) } else { 0.0 };
-    let _p4 = if args.len() > 13 { get_arg(13) } else { 0.0 };
-    let p5 = if args.len() > 14 { get_arg(14) } else { 0.0 };
-    let v5 = if args.len() > 15 { get_arg(15) } else { 0.0 };
+    let p1 = get_arg(5, "p1");
+    let p2 = get_arg(6, "p2");
+    let p3 = get_arg(7, "p3");
+    let v1 = get_arg(8, "v1");
+    let v2 = get_arg(9, "v2");
+    let v3 = get_arg(10, "v3");
+    let v4 = if args.len() > 11 {
+        get_arg(11, "v4")
+    } else {
+        0.0
+    };
+    let ovr = if args.len() > 12 {
+        get_arg(12, "overlap")
+    } else {
+        0.0
+    };
+    let _p4 = if args.len() > 13 {
+        get_arg(13, "consonant")
+    } else {
+        0.0
+    };
+    let p5 = if args.len() > 14 {
+        get_arg(14, "blank")
+    } else {
+        0.0
+    };
+    let v5 = if args.len() > 15 {
+        get_arg(15, "v5")
+    } else {
+        0.0
+    };
 
     let length_ms = organum::utils::parse_utau_length(&len_raw, 120.0);
     let overlap = ovr;

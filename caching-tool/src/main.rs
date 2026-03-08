@@ -10,7 +10,12 @@ use walkdir::WalkDir;
 use organum::resampler::{generate_and_cache_features, is_feature_cache_compatible};
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Organum cache generation tool", long_about = None)]
+#[command(
+    author,
+    version,
+    about = "Organum cache generation tool",
+    long_about = "Pre-analyzes voicebank WAV files and generates Organum feature cache files.\n\nExamples:\n  caching-tool.exe \"C:\\Voicebank\"\n  caching-tool.exe \"C:\\Voicebank\" --threads 8 --force\n\nTip:\n  - Use --verbose for per-file diagnostics\n  - Use --threads to tune throughput on large voicebanks"
+)]
 struct Args {
     /// Path to the Voicebank directory
     path_to_voicebank: String,
@@ -53,6 +58,10 @@ fn main() -> Result<()> {
     init_tracing(args.verbose, json_logs);
 
     if let Some(t) = args.threads {
+        if t == 0 {
+            eprintln!("Error: --threads must be >= 1");
+            std::process::exit(1);
+        }
         rayon::ThreadPoolBuilder::new()
             .num_threads(t)
             .build_global()?;
@@ -101,7 +110,7 @@ fn main() -> Result<()> {
                 return true;
             }
             let sc_path = organum::resampler::to_feature_path(wav, &config.feature_extension);
-            if sc_path.exists() && is_feature_cache_compatible(&sc_path) {
+            if sc_path.exists() && is_feature_cache_compatible(&sc_path, &config) {
                 pb.inc(1);
                 false
             } else {

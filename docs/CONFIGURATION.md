@@ -24,5 +24,17 @@ gpu_warp_enabled: false
 gpu_warp_min_frames: 2048
 ```
 
+## Cache Compatibility Policy
+
+Organum 캐시(`.ogc`/사용자 지정 확장자)는 아래 메타데이터가 현재 실행 환경과 일치할 때만 재사용됩니다.
+
+- cache format version
+- cache schema version
+- engine version (`CARGO_PKG_VERSION`)
+- `sample_rate`
+- `frame_period`
+
+위 값이 하나라도 다르면 캐시는 비호환으로 판단되어 자동 재생성됩니다.
+
 > [!TIP]
 > OpenUtau와의 호환성을 위해 `feature_extension`을 `llsm`으로 설정하는 것을 권장합니다.

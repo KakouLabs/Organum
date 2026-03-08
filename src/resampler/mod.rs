@@ -1,4 +1,5 @@
 pub mod common;
+pub mod device;
 pub mod io;
 pub mod pipeline;
 pub mod stages;
@@ -6,6 +7,7 @@ pub mod synthesis;
 pub mod types;
 
 pub use common::utils::{interpolate_frames, to_feature_path, LinearInterpolator};
+pub use device::{Device, DevicePolicy};
 pub use io::audio::{read_audio, resample_audio, write_audio};
 pub use io::cache::generate_and_cache_features;
 pub use io::features::{
