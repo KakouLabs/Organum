@@ -11,10 +11,6 @@ env:
   RUST_BACKTRACE: 1
   RUSTFLAGS: "-C strip=debuginfo"
   SCCACHE_GHA_ENABLED: "true"
-  RELEASE_BENCH_INFLIGHT_VALUES: "1 2"
-  RELEASE_BENCH_CHUNK_VALUES: "auto 4096"
-  RELEASE_BENCH_SIMD_MODES: "off on"
-  RELEASE_BENCH_SUMMARY_LINES: "12"
 
 jobs:
   build:
@@ -165,79 +161,12 @@ jobs:
           mkdir -p release-assets
           cp all-artifacts/*/* release-assets/
 
-      - name: Install Rust for benchmark run
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies (release benchmark)
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: release-benchmark
-
-      - name: Run latest benchmark for release notes
-        shell: bash
-        run: |
-          set -euo pipefail
-          for mode in ${RELEASE_BENCH_SIMD_MODES}; do
-            PROFILE=release \
-            OUTPUT_DIR="bench-results/simd-${mode}" \
-            INFLIGHT_VALUES="${RELEASE_BENCH_INFLIGHT_VALUES}" \
-            CHUNK_VALUES="${RELEASE_BENCH_CHUNK_VALUES}" \
-            ORGANUM_AP_SIMD="${mode}" \
-            bash scripts/run-bench.sh
-          done
-
-          eval "$(python3 - <<'PY'"
-          import os
-          import shlex
-          from pathlib import Path
-
-          def latest_pair(base: Path):
-              summaries = sorted(base.glob("*.summary.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
-              logs = sorted(
-                  [p for p in base.glob("bench-*.txt") if not p.name.endswith(".summary.txt")],
-                  key=lambda p: p.stat().st_mtime,
-                  reverse=True,
-              )
-              if not summaries:
-                  raise SystemExit(f"no benchmark summary generated in {base}")
-              summary = summaries[0]
-              log = logs[0] if logs else None
-              return summary, log
-
-          off_summary, off_log = latest_pair(Path("bench-results/simd-off"))
-          on_summary, on_log = latest_pair(Path("bench-results/simd-on"))
-
-          env_path = Path(os.environ["GITHUB_ENV"])
-          exports = []
-          with env_path.open("a", encoding="utf-8") as f:
-              f.write(f"RELEASE_BENCH_SUMMARY_OFF={off_summary.as_posix()}\n")
-              f.write(f"RELEASE_BENCH_SUMMARY_ON={on_summary.as_posix()}\n")
-              exports.append(("RELEASE_BENCH_SUMMARY_OFF", off_summary.as_posix()))
-              exports.append(("RELEASE_BENCH_SUMMARY_ON", on_summary.as_posix()))
-              if off_log:
-                  f.write(f"RELEASE_BENCH_LOG_OFF={off_log.as_posix()}\n")
-                  exports.append(("RELEASE_BENCH_LOG_OFF", off_log.as_posix()))
-              if on_log:
-                  f.write(f"RELEASE_BENCH_LOG_ON={on_log.as_posix()}\n")
-                  exports.append(("RELEASE_BENCH_LOG_ON", on_log.as_posix()))
-
-          for key, value in exports:
-              print(f"{key}={shlex.quote(value)}")
-          PY
-          )"
-
-          cp "${RELEASE_BENCH_SUMMARY_OFF}" release-assets/
-          cp "${RELEASE_BENCH_SUMMARY_ON}" release-assets/
-          if [ -n "${RELEASE_BENCH_LOG_OFF:-}" ]; then
-            cp "${RELEASE_BENCH_LOG_OFF}" release-assets/
-          fi
-          if [ -n "${RELEASE_BENCH_LOG_ON:-}" ]; then
-            cp "${RELEASE_BENCH_LOG_ON}" release-assets/
-          fi
-
       - name: Generate release notes body
         shell: bash
         run: |
+          BENCH_DIR="benchmarks/${GITHUB_REF_NAME}"
+          BENCH_URL="https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}/${BENCH_DIR}"
+
           cat > RELEASE_NOTES.md <<'EOF'
           ## Binaries
 
@@ -256,37 +185,13 @@ jobs:
           - `organum-macos-cpu-gpu.tar.gz`
           EOF
 
-          if [ -n "${RELEASE_BENCH_SUMMARY_OFF:-}" ] && [ -f "${RELEASE_BENCH_SUMMARY_OFF}" ]; then
-            {
-              echo
-              echo "## Latest Benchmark (ORGANUM_AP_SIMD=off)"
-              echo
-              if [ -n "${RELEASE_BENCH_LOG_OFF:-}" ]; then
-                echo "- Full log asset: \\`${RELEASE_BENCH_LOG_OFF##*/}\\`"
-              fi
-              echo "- Summary asset: \\`${RELEASE_BENCH_SUMMARY_OFF##*/}\\`"
-              echo
-              echo '\```text'
-              sed -n "1,${RELEASE_BENCH_SUMMARY_LINES}p" "${RELEASE_BENCH_SUMMARY_OFF}"
-              echo '\```'
-            } >> RELEASE_NOTES.md
-          fi
-
-          if [ -n "${RELEASE_BENCH_SUMMARY_ON:-}" ] && [ -f "${RELEASE_BENCH_SUMMARY_ON}" ]; then
-            {
-              echo
-              echo "## Latest Benchmark (ORGANUM_AP_SIMD=on)"
-              echo
-              if [ -n "${RELEASE_BENCH_LOG_ON:-}" ]; then
-                echo "- Full log asset: \\`${RELEASE_BENCH_LOG_ON##*/}\\`"
-              fi
-              echo "- Summary asset: \\`${RELEASE_BENCH_SUMMARY_ON##*/}\\`"
-              echo
-              echo '\```text'
-              sed -n "1,${RELEASE_BENCH_SUMMARY_LINES}p" "${RELEASE_BENCH_SUMMARY_ON}"
-              echo '\```'
-            } >> RELEASE_NOTES.md
-          fi
+          {
+            echo
+            echo "## Benchmark"
+            echo
+            echo "- Version benchmark folder: [\`${BENCH_DIR}\`](${BENCH_URL})"
+            echo "- Put benchmark artifacts for this tag under that folder (for example: `summary.md`, `perf_raw.csv`, `perf_summary.csv`)."
+          } >> RELEASE_NOTES.md
 
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
