@@ -1,0 +1,11 @@
+# Best config summary
+# Source log: benchmarks/v0.0.4/bench-results/bench-20260309-150653.txt
+bench  case       inflight chunk    median     p95        verdict     
+ap     long       1        4096     5.3251     5.1614     CPU faster  
+ap     medium     1        4096     5.1561     5.1132     CPU faster  
+ap     short      3        auto     1.0515     1.0500     CPU faster  
+ap     stress_mix 3        4096     4.9732     4.4189     CPU faster  
+warp   long       1        2048     2.8498     2.8888     CPU faster  
+warp   medium     1        auto     2.5983     2.5500     CPU faster  
+warp   short      3        2048     0.5445     0.5443     GPU faster  
+warp   stress_mix 1        2048     2.8383     2.8360     CPU faster  

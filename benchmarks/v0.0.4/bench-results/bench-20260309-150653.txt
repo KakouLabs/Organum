@@ -1,0 +1,1006 @@
+# Organum benchmark run
+# Timestamp: 20260309-150653
+# Profile: dev
+# Inflight values: 1 2 3
+# Chunk values: auto 2048 4096
+
+============================================================
+CASE inflight=1 chunk=auto
+============================================================
+WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.005s (p95: 10.217s) us/frame=162.84 (p95: 166.30) Mbins/s=12.58
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.606s (p95: 5.889s) us/frame=91.25 (p95: 95.86) Mbins/s=22.46
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=2.062s (p95: 2.114s) us/frame=33.56 (p95: 34.41) Mbins/s=61.06
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.357s (p95: 5.391s) us/frame=87.20 (p95: 87.74) Mbins/s=23.50
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=3.987s (p95: 4.092s) us/frame=30.42 (p95: 31.22) Mbins/s=67.35
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.603s (p95: 12.083s) us/frame=88.52 (p95: 92.19) Mbins/s=23.15
+             cache hits/misses/reallocs=81/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=82
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.505s (p95: 2.512s) us/frame=30.58 (p95: 30.67) Mbins/s=67.00
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.215s (p95: 7.281s) us/frame=88.07 (p95: 88.88) Mbins/s=23.26
+             cache hits/misses/reallocs=201/0/1 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  43.97% FASTER than CPU (p95: -42.36%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5603,p95_ratio=0.5764
+[medium     ] GPU is 159.83% SLOWER than CPU (p95: +155.00%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.5983,p95_ratio=2.5500
+[long       ] GPU is 190.99% SLOWER than CPU (p95: +195.30%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.9099,p95_ratio=2.9530
+[stress_mix ] GPU is 187.98% SLOWER than CPU (p95: +189.79%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.8798,p95_ratio=2.8979
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5603 p95_ratio=0.5764
+[medium     ] recommend=CPU median_ratio=2.5983 p95_ratio=2.5500
+[long       ] recommend=CPU median_ratio=2.9099 p95_ratio=2.9530
+[stress_mix ] recommend=CPU median_ratio=2.8798 p95_ratio=2.8979
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.0051,10.2175,162.84,166.30,12.58,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,2.0619,2.1140,33.56,34.41,61.06,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,3.9873,4.0919,30.42,31.22,67.35,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.5054,2.5124,30.58,30.67,67.00,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.6063,5.8895,91.25,95.86,22.46,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.3574,5.3907,87.20,87.74,23.50,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.6026,12.0834,88.52,92.19,23.15,81,1,0,1,1,0,0,82
+stress_mix,Gpu,4096,2049,20,10,1,7.2150,7.2808,88.07,88.88,23.26,201,0,1,1,1,0,0,202
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.543s (p95: 2.580s) us/frame=41.39 (p95: 42.00) Mbins/s=24.74
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.809s (p95: 2.851s) us/frame=45.73 (p95: 46.40) Mbins/s=22.39
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.516s (p95: 0.518s) us/frame=8.40 (p95: 8.42) Mbins/s=121.86
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.681s (p95: 2.731s) us/frame=43.64 (p95: 44.45) Mbins/s=23.46
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.061s (p95: 1.226s) us/frame=8.10 (p95: 9.35) Mbins/s=126.50
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=6.039s (p95: 6.288s) us/frame=46.07 (p95: 47.98) Mbins/s=22.23
+             cache hits/misses/reallocs=81/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=82
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.700s (p95: 0.731s) us/frame=8.54 (p95: 8.92) Mbins/s=119.91
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.747s (p95: 3.877s) us/frame=45.74 (p95: 47.33) Mbins/s=22.39
+             cache hits/misses/reallocs=201/0/1 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  10.49% SLOWER than CPU (p95: +10.48%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.1049,p95_ratio=1.1048
+[medium     ] GPU is 419.32% SLOWER than CPU (p95: +427.64%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.1932,p95_ratio=5.2764
+[long       ] GPU is 469.13% SLOWER than CPU (p95: +413.04%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.6913,p95_ratio=5.1304
+[stress_mix ] GPU is 435.60% SLOWER than CPU (p95: +430.27%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.3560,p95_ratio=5.3027
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.1049 p95_ratio=1.1048
+[medium     ] recommend=CPU median_ratio=5.1932 p95_ratio=5.2764
+[long       ] recommend=CPU median_ratio=5.6913 p95_ratio=5.1304
+[stress_mix ] recommend=CPU median_ratio=5.3560 p95_ratio=5.3027
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5428,2.5804,41.39,42.00,24.74,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.5163,0.5176,8.40,8.42,121.86,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0610,1.2257,8.10,9.35,126.50,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6996,0.7311,8.54,8.92,119.91,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.8094,2.8510,45.73,46.40,22.39,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.6812,2.7309,43.64,44.45,23.46,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,6.0387,6.2882,46.07,47.98,22.23,81,1,0,1,0,0,82
+stress_mix,Gpu,4096,1024,20,10,1,3.7470,3.8770,45.74,47.33,22.39,201,0,1,1,0,0,202
+
+============================================================
+CASE inflight=1 chunk=2048
+============================================================
+WARP_GPU_CHUNK_FRAMES=2048
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=2048
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.196s (p95: 10.706s) us/frame=165.95 (p95: 174.25) Mbins/s=12.35
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.654s (p95: 5.683s) us/frame=92.03 (p95: 92.49) Mbins/s=22.26
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.912s (p95: 1.922s) us/frame=31.11 (p95: 31.27) Mbins/s=65.85
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.393s (p95: 5.593s) us/frame=87.78 (p95: 91.03) Mbins/s=23.34
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=4.035s (p95: 4.037s) us/frame=30.78 (p95: 30.80) Mbins/s=66.56
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.498s (p95: 11.662s) us/frame=87.72 (p95: 88.98) Mbins/s=23.36
+             cache hits/misses/reallocs=82/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=328
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.521s (p95: 2.537s) us/frame=30.77 (p95: 30.97) Mbins/s=66.59
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.155s (p95: 7.196s) us/frame=87.34 (p95: 87.84) Mbins/s=23.46
+             cache hits/misses/reallocs=202/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=404
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  44.54% FASTER than CPU (p95: -46.92%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5546,p95_ratio=0.5308
+[medium     ] GPU is 182.11% SLOWER than CPU (p95: +191.07%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.8211,p95_ratio=2.9107
+[long       ] GPU is 184.98% SLOWER than CPU (p95: +188.88%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.8498,p95_ratio=2.8888
+[stress_mix ] GPU is 183.83% SLOWER than CPU (p95: +183.60%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.8383,p95_ratio=2.8360
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5546 p95_ratio=0.5308
+[medium     ] recommend=CPU median_ratio=2.8211 p95_ratio=2.9107
+[long       ] recommend=CPU median_ratio=2.8498 p95_ratio=2.8888
+[stress_mix ] recommend=CPU median_ratio=2.8383 p95_ratio=2.8360
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.1960,10.7060,165.95,174.25,12.35,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.9116,1.9215,31.11,31.27,65.85,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,4.0347,4.0370,30.78,30.80,66.56,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.5208,2.5375,30.77,30.97,66.59,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.6542,5.6828,92.03,92.49,22.26,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.3929,5.5931,87.78,91.03,23.34,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.4981,11.6622,87.72,88.98,23.36,82,0,0,0,0,0,0,328
+stress_mix,Gpu,4096,2049,20,10,1,7.1546,7.1962,87.34,87.84,23.46,202,0,0,0,0,0,0,404
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=2048
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.560s (p95: 2.644s) us/frame=41.66 (p95: 43.03) Mbins/s=24.58
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.807s (p95: 3.052s) us/frame=45.68 (p95: 49.67) Mbins/s=22.42
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.523s (p95: 0.534s) us/frame=8.52 (p95: 8.69) Mbins/s=120.21
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.727s (p95: 2.771s) us/frame=44.39 (p95: 45.10) Mbins/s=23.07
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.045s (p95: 1.071s) us/frame=7.97 (p95: 8.17) Mbins/s=128.43
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.748s (p95: 5.804s) us/frame=43.85 (p95: 44.28) Mbins/s=23.35
+             cache hits/misses/reallocs=82/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=328
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.666s (p95: 0.678s) us/frame=8.13 (p95: 8.27) Mbins/s=125.93
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.588s (p95: 3.651s) us/frame=43.80 (p95: 44.57) Mbins/s=23.38
+             cache hits/misses/reallocs=202/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=404
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is   9.64% SLOWER than CPU (p95: +15.43%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.0964,p95_ratio=1.1543
+[medium     ] GPU is 421.10% SLOWER than CPU (p95: +418.95%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.2110,p95_ratio=5.1895
+[long       ] GPU is 450.01% SLOWER than CPU (p95: +441.93%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.5001,p95_ratio=5.4193
+[stress_mix ] GPU is 438.61% SLOWER than CPU (p95: +438.74%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.3861,p95_ratio=5.3874
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.0964 p95_ratio=1.1543
+[medium     ] recommend=CPU median_ratio=5.2110 p95_ratio=5.1895
+[long       ] recommend=CPU median_ratio=5.5001 p95_ratio=5.4193
+[stress_mix ] recommend=CPU median_ratio=5.3861 p95_ratio=5.3874
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5599,2.6440,41.66,43.03,24.58,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.5234,0.5339,8.52,8.69,120.21,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0451,1.0711,7.97,8.17,128.43,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6661,0.6777,8.13,8.27,125.93,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.8066,3.0520,45.68,49.67,22.42,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.7273,2.7709,44.39,45.10,23.07,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.7479,5.8045,43.85,44.28,23.35,82,0,0,0,0,0,328
+stress_mix,Gpu,4096,1024,20,10,1,3.5877,3.6510,43.80,44.57,23.38,202,0,0,0,0,0,404
+
+============================================================
+CASE inflight=1 chunk=4096
+============================================================
+WARP_GPU_CHUNK_FRAMES=4096
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=4096
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.097s (p95: 10.228s) us/frame=164.34 (p95: 166.46) Mbins/s=12.47
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.608s (p95: 5.729s) us/frame=91.28 (p95: 93.25) Mbins/s=22.45
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.925s (p95: 1.955s) us/frame=31.32 (p95: 31.82) Mbins/s=65.41
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.380s (p95: 5.401s) us/frame=87.57 (p95: 87.91) Mbins/s=23.40
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=4.055s (p95: 4.109s) us/frame=30.93 (p95: 31.35) Mbins/s=66.24
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.642s (p95: 11.708s) us/frame=88.82 (p95: 89.33) Mbins/s=23.07
+             cache hits/misses/reallocs=81/0/1 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=164
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.538s (p95: 2.554s) us/frame=30.98 (p95: 31.18) Mbins/s=66.14
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.350s (p95: 7.517s) us/frame=89.72 (p95: 91.76) Mbins/s=22.84
+             cache hits/misses/reallocs=202/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  44.45% FASTER than CPU (p95: -43.98%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5555,p95_ratio=0.5602
+[medium     ] GPU is 179.55% SLOWER than CPU (p95: +176.28%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.7955,p95_ratio=2.7628
+[long       ] GPU is 187.13% SLOWER than CPU (p95: +184.95%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.8713,p95_ratio=2.8495
+[stress_mix ] GPU is 189.61% SLOWER than CPU (p95: +194.31%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.8961,p95_ratio=2.9431
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5555 p95_ratio=0.5602
+[medium     ] recommend=CPU median_ratio=2.7955 p95_ratio=2.7628
+[long       ] recommend=CPU median_ratio=2.8713 p95_ratio=2.8495
+[stress_mix ] recommend=CPU median_ratio=2.8961 p95_ratio=2.9431
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.0969,10.2276,164.34,166.46,12.47,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.9246,1.9550,31.32,31.82,65.41,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,4.0546,4.1089,30.93,31.35,66.24,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.5378,2.5541,30.98,31.18,66.14,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.6084,5.7295,91.28,93.25,22.45,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.3802,5.4014,87.57,87.91,23.40,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.6418,11.7083,88.82,89.33,23.07,81,0,1,1,1,0,0,164
+stress_mix,Gpu,4096,2049,20,10,1,7.3497,7.5170,89.72,91.76,22.84,202,0,0,0,0,0,0,202
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=4096
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.555s (p95: 2.569s) us/frame=41.58 (p95: 41.81) Mbins/s=24.62
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.799s (p95: 2.820s) us/frame=45.56 (p95: 45.90) Mbins/s=22.47
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.525s (p95: 0.534s) us/frame=8.54 (p95: 8.69) Mbins/s=119.92
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.705s (p95: 2.729s) us/frame=44.03 (p95: 44.41) Mbins/s=23.26
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.071s (p95: 1.111s) us/frame=8.17 (p95: 8.47) Mbins/s=125.32
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.703s (p95: 5.732s) us/frame=43.51 (p95: 43.73) Mbins/s=23.53
+             cache hits/misses/reallocs=81/0/1 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=164
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.654s (p95: 0.661s) us/frame=7.99 (p95: 8.07) Mbins/s=128.22
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.581s (p95: 3.649s) us/frame=43.71 (p95: 44.54) Mbins/s=23.43
+             cache hits/misses/reallocs=202/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is   9.57% SLOWER than CPU (p95:  +9.78%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.0957,p95_ratio=1.0978
+[medium     ] GPU is 415.61% SLOWER than CPU (p95: +411.32%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.1561,p95_ratio=5.1132
+[long       ] GPU is 432.51% SLOWER than CPU (p95: +416.14%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.3251,p95_ratio=5.1614
+[stress_mix ] GPU is 447.34% SLOWER than CPU (p95: +451.91%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.4734,p95_ratio=5.5191
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.0957 p95_ratio=1.0978
+[medium     ] recommend=CPU median_ratio=5.1561 p95_ratio=5.1132
+[long       ] recommend=CPU median_ratio=5.3251 p95_ratio=5.1614
+[stress_mix ] recommend=CPU median_ratio=5.4734 p95_ratio=5.5191
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5550,2.5687,41.58,41.81,24.62,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.5247,0.5337,8.54,8.69,119.92,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0710,1.1105,8.17,8.47,125.32,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6542,0.6611,7.99,8.07,128.22,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.7994,2.8200,45.56,45.90,22.47,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.7052,2.7287,44.03,44.41,23.26,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.7032,5.7317,43.51,43.73,23.53,81,0,1,1,0,0,164
+stress_mix,Gpu,4096,1024,20,10,1,3.5808,3.6486,43.71,44.54,23.43,202,0,0,0,0,0,202
+
+============================================================
+CASE inflight=2 chunk=auto
+============================================================
+WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.190s (p95: 10.307s) us/frame=165.84 (p95: 167.76) Mbins/s=12.35
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.722s (p95: 5.745s) us/frame=93.13 (p95: 93.50) Mbins/s=22.00
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.910s (p95: 1.923s) us/frame=31.08 (p95: 31.29) Mbins/s=65.92
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.478s (p95: 5.504s) us/frame=89.17 (p95: 89.58) Mbins/s=22.98
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=4.022s (p95: 4.023s) us/frame=30.68 (p95: 30.69) Mbins/s=66.78
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.735s (p95: 11.931s) us/frame=89.53 (p95: 91.02) Mbins/s=22.89
+             cache hits/misses/reallocs=81/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=82
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.503s (p95: 2.617s) us/frame=30.56 (p95: 31.95) Mbins/s=67.05
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.359s (p95: 7.482s) us/frame=89.84 (p95: 91.33) Mbins/s=22.81
+             cache hits/misses/reallocs=201/0/1 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  43.85% FASTER than CPU (p95: -44.27%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5615,p95_ratio=0.5573
+[medium     ] GPU is 186.86% SLOWER than CPU (p95: +186.25%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.8686,p95_ratio=2.8625
+[long       ] GPU is 191.79% SLOWER than CPU (p95: +196.56%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.9179,p95_ratio=2.9656
+[stress_mix ] GPU is 193.99% SLOWER than CPU (p95: +185.84%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.9399,p95_ratio=2.8584
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5615 p95_ratio=0.5573
+[medium     ] recommend=CPU median_ratio=2.8686 p95_ratio=2.8625
+[long       ] recommend=CPU median_ratio=2.9179 p95_ratio=2.9656
+[stress_mix ] recommend=CPU median_ratio=2.9399 p95_ratio=2.8584
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.1895,10.3071,165.84,167.76,12.35,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.9098,1.9227,31.08,31.29,65.92,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,4.0219,4.0231,30.68,30.69,66.78,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.5033,2.6174,30.56,31.95,67.05,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.7217,5.7446,93.13,93.50,22.00,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.4785,5.5037,89.17,89.58,22.98,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.7354,11.9308,89.53,91.02,22.89,81,1,0,1,1,0,0,82
+stress_mix,Gpu,4096,2049,20,10,1,7.3594,7.4816,89.84,91.33,22.81,201,0,1,1,1,0,0,202
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.558s (p95: 2.574s) us/frame=41.63 (p95: 41.89) Mbins/s=24.60
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.788s (p95: 2.810s) us/frame=45.38 (p95: 45.73) Mbins/s=22.56
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.509s (p95: 0.539s) us/frame=8.29 (p95: 8.78) Mbins/s=123.56
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.710s (p95: 2.713s) us/frame=44.12 (p95: 44.15) Mbins/s=23.21
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.028s (p95: 1.032s) us/frame=7.85 (p95: 7.88) Mbins/s=130.52
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.760s (p95: 5.787s) us/frame=43.95 (p95: 44.15) Mbins/s=23.30
+             cache hits/misses/reallocs=81/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=82
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.656s (p95: 0.659s) us/frame=8.01 (p95: 8.04) Mbins/s=127.90
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.541s (p95: 3.556s) us/frame=43.22 (p95: 43.40) Mbins/s=23.69
+             cache hits/misses/reallocs=201/0/1 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is   9.01% SLOWER than CPU (p95:  +9.16%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.0901,p95_ratio=1.0916
+[medium     ] GPU is 432.33% SLOWER than CPU (p95: +402.99%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.3233,p95_ratio=5.0299
+[long       ] GPU is 460.15% SLOWER than CPU (p95: +460.59%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.6015,p95_ratio=5.6059
+[stress_mix ] GPU is 439.87% SLOWER than CPU (p95: +439.90%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.3987,p95_ratio=5.3990
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.0901 p95_ratio=1.0916
+[medium     ] recommend=CPU median_ratio=5.3233 p95_ratio=5.0299
+[long       ] recommend=CPU median_ratio=5.6015 p95_ratio=5.6059
+[stress_mix ] recommend=CPU median_ratio=5.3987 p95_ratio=5.3990
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5579,2.5737,41.63,41.89,24.60,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.5092,0.5393,8.29,8.78,123.56,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0283,1.0323,7.85,7.88,130.52,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6559,0.6586,8.01,8.04,127.90,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.7884,2.8096,45.38,45.73,22.56,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.7104,2.7125,44.12,44.15,23.21,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.7601,5.7872,43.95,44.15,23.30,81,1,0,1,0,0,82
+stress_mix,Gpu,4096,1024,20,10,1,3.5409,3.5555,43.22,43.40,23.69,201,0,1,1,0,0,202
+
+============================================================
+CASE inflight=2 chunk=2048
+============================================================
+WARP_GPU_CHUNK_FRAMES=2048
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=2048
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.009s (p95: 10.131s) us/frame=162.91 (p95: 164.90) Mbins/s=12.58
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.639s (p95: 5.661s) us/frame=91.78 (p95: 92.13) Mbins/s=22.32
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.884s (p95: 1.896s) us/frame=30.66 (p95: 30.86) Mbins/s=66.83
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.430s (p95: 5.485s) us/frame=88.37 (p95: 89.28) Mbins/s=23.19
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=4.005s (p95: 4.026s) us/frame=30.56 (p95: 30.71) Mbins/s=67.05
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.551s (p95: 11.704s) us/frame=88.13 (p95: 89.30) Mbins/s=23.25
+             cache hits/misses/reallocs=82/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=328
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.508s (p95: 2.568s) us/frame=30.61 (p95: 31.34) Mbins/s=66.93
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.195s (p95: 7.337s) us/frame=87.83 (p95: 89.56) Mbins/s=23.33
+             cache hits/misses/reallocs=202/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=404
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  43.66% FASTER than CPU (p95: -44.13%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5634,p95_ratio=0.5587
+[medium     ] GPU is 188.23% SLOWER than CPU (p95: +189.27%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.8823,p95_ratio=2.8927
+[long       ] GPU is 188.38% SLOWER than CPU (p95: +190.74%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.8838,p95_ratio=2.9074
+[stress_mix ] GPU is 186.87% SLOWER than CPU (p95: +185.75%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.8687,p95_ratio=2.8575
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5634 p95_ratio=0.5587
+[medium     ] recommend=CPU median_ratio=2.8823 p95_ratio=2.8927
+[long       ] recommend=CPU median_ratio=2.8838 p95_ratio=2.9074
+[stress_mix ] recommend=CPU median_ratio=2.8687 p95_ratio=2.8575
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.0090,10.1312,162.91,164.90,12.58,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.8837,1.8963,30.66,30.86,66.83,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,4.0055,4.0258,30.56,30.71,67.05,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.5079,2.5676,30.61,31.34,66.93,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.6391,5.6607,91.78,92.13,22.32,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.4295,5.4854,88.37,89.28,23.19,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.5510,11.7043,88.13,89.30,23.25,82,0,0,0,0,0,0,328
+stress_mix,Gpu,4096,2049,20,10,1,7.1947,7.3368,87.83,89.56,23.33,202,0,0,0,0,0,0,404
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=2048
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.582s (p95: 2.601s) us/frame=42.03 (p95: 42.34) Mbins/s=24.36
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.779s (p95: 2.813s) us/frame=45.24 (p95: 45.79) Mbins/s=22.64
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.520s (p95: 0.530s) us/frame=8.47 (p95: 8.62) Mbins/s=120.89
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.730s (p95: 2.783s) us/frame=44.44 (p95: 45.29) Mbins/s=23.04
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.047s (p95: 1.051s) us/frame=7.99 (p95: 8.02) Mbins/s=128.24
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.729s (p95: 5.787s) us/frame=43.71 (p95: 44.15) Mbins/s=23.43
+             cache hits/misses/reallocs=82/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=328
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.666s (p95: 0.684s) us/frame=8.13 (p95: 8.34) Mbins/s=126.00
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.578s (p95: 3.653s) us/frame=43.68 (p95: 44.59) Mbins/s=23.44
+             cache hits/misses/reallocs=202/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=404
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is   7.64% SLOWER than CPU (p95:  +8.15%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.0764,p95_ratio=1.0815
+[medium     ] GPU is 424.64% SLOWER than CPU (p95: +425.52%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.2464,p95_ratio=5.2552
+[long       ] GPU is 447.41% SLOWER than CPU (p95: +450.34%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.4741,p95_ratio=5.5034
+[stress_mix ] GPU is 437.44% SLOWER than CPU (p95: +434.42%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.3744,p95_ratio=5.3442
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.0764 p95_ratio=1.0815
+[medium     ] recommend=CPU median_ratio=5.2464 p95_ratio=5.2552
+[long       ] recommend=CPU median_ratio=5.4741 p95_ratio=5.5034
+[stress_mix ] recommend=CPU median_ratio=5.3744 p95_ratio=5.3442
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5823,2.6012,42.03,42.34,24.36,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.5204,0.5295,8.47,8.62,120.89,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0466,1.0515,7.99,8.02,128.24,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6658,0.6835,8.13,8.34,126.00,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.7795,2.8133,45.24,45.79,22.64,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.7303,2.7827,44.44,45.29,23.04,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.7293,5.7868,43.71,44.15,23.43,82,0,0,0,0,0,328
+stress_mix,Gpu,4096,1024,20,10,1,3.5781,3.6528,43.68,44.59,23.44,202,0,0,0,0,0,404
+
+============================================================
+CASE inflight=2 chunk=4096
+============================================================
+WARP_GPU_CHUNK_FRAMES=4096
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=4096
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.043s (p95: 10.046s) us/frame=163.46 (p95: 163.51) Mbins/s=12.54
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.627s (p95: 5.637s) us/frame=91.58 (p95: 91.75) Mbins/s=22.37
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.891s (p95: 1.913s) us/frame=30.77 (p95: 31.14) Mbins/s=66.59
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.426s (p95: 5.433s) us/frame=88.31 (p95: 88.43) Mbins/s=23.20
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=3.948s (p95: 3.955s) us/frame=30.12 (p95: 30.17) Mbins/s=68.03
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.478s (p95: 11.496s) us/frame=87.57 (p95: 87.71) Mbins/s=23.40
+             cache hits/misses/reallocs=81/0/1 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=164
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.486s (p95: 2.567s) us/frame=30.35 (p95: 31.33) Mbins/s=67.51
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.323s (p95: 7.332s) us/frame=89.39 (p95: 89.51) Mbins/s=22.92
+             cache hits/misses/reallocs=202/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  43.97% FASTER than CPU (p95: -43.89%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5603,p95_ratio=0.5611
+[medium     ] GPU is 187.01% SLOWER than CPU (p95: +184.01%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.8701,p95_ratio=2.8401
+[long       ] GPU is 190.77% SLOWER than CPU (p95: +190.69%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.9077,p95_ratio=2.9069
+[stress_mix ] GPU is 194.50% SLOWER than CPU (p95: +185.69%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.9450,p95_ratio=2.8569
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5603 p95_ratio=0.5611
+[medium     ] recommend=CPU median_ratio=2.8701 p95_ratio=2.8401
+[long       ] recommend=CPU median_ratio=2.9077 p95_ratio=2.9069
+[stress_mix ] recommend=CPU median_ratio=2.9450 p95_ratio=2.8569
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.0428,10.0460,163.46,163.51,12.54,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.8905,1.9131,30.77,31.14,66.59,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,3.9475,3.9546,30.12,30.17,68.03,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.4864,2.5666,30.35,31.33,67.51,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.6268,5.6370,91.58,91.75,22.37,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.4259,5.4334,88.31,88.43,23.20,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.4781,11.4957,87.57,87.71,23.40,81,0,1,1,1,0,0,164
+stress_mix,Gpu,4096,2049,20,10,1,7.3226,7.3323,89.39,89.51,22.92,202,0,0,0,0,0,0,202
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=4096
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.547s (p95: 2.562s) us/frame=41.45 (p95: 41.70) Mbins/s=24.70
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.798s (p95: 2.818s) us/frame=45.55 (p95: 45.87) Mbins/s=22.48
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.510s (p95: 0.512s) us/frame=8.30 (p95: 8.34) Mbins/s=123.40
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.702s (p95: 2.715s) us/frame=43.97 (p95: 44.18) Mbins/s=23.29
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.026s (p95: 1.036s) us/frame=7.83 (p95: 7.90) Mbins/s=130.81
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.633s (p95: 5.654s) us/frame=42.98 (p95: 43.14) Mbins/s=23.83
+             cache hits/misses/reallocs=81/0/1 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=164
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.654s (p95: 0.671s) us/frame=7.98 (p95: 8.19) Mbins/s=128.36
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.554s (p95: 3.559s) us/frame=43.38 (p95: 43.44) Mbins/s=23.60
+             cache hits/misses/reallocs=202/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is   9.88% SLOWER than CPU (p95:  +9.98%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.0988,p95_ratio=1.0998
+[medium     ] GPU is 429.93% SLOWER than CPU (p95: +429.83%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.2993,p95_ratio=5.2983
+[long       ] GPU is 449.04% SLOWER than CPU (p95: +445.85%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.4904,p95_ratio=5.4585
+[stress_mix ] GPU is 443.83% SLOWER than CPU (p95: +430.43%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.4383,p95_ratio=5.3043
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.0988 p95_ratio=1.0998
+[medium     ] recommend=CPU median_ratio=5.2993 p95_ratio=5.2983
+[long       ] recommend=CPU median_ratio=5.4904 p95_ratio=5.4585
+[stress_mix ] recommend=CPU median_ratio=5.4383 p95_ratio=5.3043
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5467,2.5622,41.45,41.70,24.70,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.5098,0.5124,8.30,8.34,123.40,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0260,1.0358,7.83,7.90,130.81,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6535,0.6709,7.98,8.19,128.36,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.7983,2.8180,45.55,45.87,22.48,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.7018,2.7146,43.97,44.18,23.29,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.6334,5.6541,42.98,43.14,23.83,81,0,1,1,0,0,164
+stress_mix,Gpu,4096,1024,20,10,1,3.5539,3.5588,43.38,43.44,23.60,202,0,0,0,0,0,202
+
+============================================================
+CASE inflight=3 chunk=auto
+============================================================
+WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.068s (p95: 10.079s) us/frame=163.86 (p95: 164.05) Mbins/s=12.50
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.639s (p95: 5.650s) us/frame=91.78 (p95: 91.96) Mbins/s=22.32
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.894s (p95: 1.911s) us/frame=30.82 (p95: 31.11) Mbins/s=66.48
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.445s (p95: 5.448s) us/frame=88.62 (p95: 88.66) Mbins/s=23.12
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=3.966s (p95: 4.060s) us/frame=30.26 (p95: 30.97) Mbins/s=67.71
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.608s (p95: 11.648s) us/frame=88.56 (p95: 88.86) Mbins/s=23.14
+             cache hits/misses/reallocs=81/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=82
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.580s (p95: 5.621s) us/frame=31.50 (p95: 68.61) Mbins/s=65.05
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.338s (p95: 7.480s) us/frame=89.58 (p95: 91.30) Mbins/s=22.87
+             cache hits/misses/reallocs=201/0/1 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  43.99% FASTER than CPU (p95: -43.94%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5601,p95_ratio=0.5606
+[medium     ] GPU is 187.50% SLOWER than CPU (p95: +185.03%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.8750,p95_ratio=2.8503
+[long       ] GPU is 192.67% SLOWER than CPU (p95: +186.90%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.9267,p95_ratio=2.8690
+[stress_mix ] GPU is 184.40% SLOWER than CPU (p95: +33.07%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.8440,p95_ratio=1.3307
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5601 p95_ratio=0.5606
+[medium     ] recommend=CPU median_ratio=2.8750 p95_ratio=2.8503
+[long       ] recommend=CPU median_ratio=2.9267 p95_ratio=2.8690
+[stress_mix ] recommend=CPU median_ratio=2.8440 p95_ratio=1.3307
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.0678,10.0795,163.86,164.05,12.50,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.8938,1.9112,30.82,31.11,66.48,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,3.9664,4.0598,30.26,30.97,67.71,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.5803,5.6208,31.50,68.61,65.05,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.6391,5.6501,91.78,91.96,22.32,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.4446,5.4475,88.62,88.66,23.12,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.6083,11.6477,88.56,88.86,23.14,81,1,0,1,1,0,0,82
+stress_mix,Gpu,4096,2049,20,10,1,7.3382,7.4796,89.58,91.30,22.87,201,0,1,1,1,0,0,202
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=auto(full-frame)
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.568s (p95: 2.577s) us/frame=41.79 (p95: 41.95) Mbins/s=24.50
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.700s (p95: 2.706s) us/frame=43.95 (p95: 44.04) Mbins/s=23.30
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.471s (p95: 0.493s) us/frame=7.67 (p95: 8.03) Mbins/s=133.48
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.660s (p95: 2.676s) us/frame=43.29 (p95: 43.55) Mbins/s=23.65
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.018s (p95: 1.030s) us/frame=7.76 (p95: 7.86) Mbins/s=131.88
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.732s (p95: 5.761s) us/frame=43.73 (p95: 43.95) Mbins/s=23.42
+             cache hits/misses/reallocs=81/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=82
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.635s (p95: 0.639s) us/frame=7.75 (p95: 7.80) Mbins/s=132.06
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.525s (p95: 3.551s) us/frame=43.03 (p95: 43.35) Mbins/s=23.80
+             cache hits/misses/reallocs=201/0/1 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is   5.15% SLOWER than CPU (p95:  +5.00%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.0515,p95_ratio=1.0500
+[medium     ] GPU is 464.36% SLOWER than CPU (p95: +442.42%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.6436,p95_ratio=5.4242
+[long       ] GPU is 463.19% SLOWER than CPU (p95: +459.43%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.6319,p95_ratio=5.5943
+[stress_mix ] GPU is 454.97% SLOWER than CPU (p95: +455.59%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.5497,p95_ratio=5.5559
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.0515 p95_ratio=1.0500
+[medium     ] recommend=CPU median_ratio=5.6436 p95_ratio=5.4242
+[long       ] recommend=CPU median_ratio=5.6319 p95_ratio=5.5943
+[stress_mix ] recommend=CPU median_ratio=5.5497 p95_ratio=5.5559
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5678,2.5772,41.79,41.95,24.50,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.4713,0.4933,7.67,8.03,133.48,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0177,1.0298,7.76,7.86,131.88,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6352,0.6391,7.75,7.80,132.06,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.7001,2.7060,43.95,44.04,23.30,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.6600,2.6759,43.29,43.55,23.65,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.7316,5.7612,43.73,43.95,23.42,81,1,0,1,0,0,82
+stress_mix,Gpu,4096,1024,20,10,1,3.5251,3.5510,43.03,43.35,23.80,201,0,1,1,0,0,202
+
+============================================================
+CASE inflight=3 chunk=2048
+============================================================
+WARP_GPU_CHUNK_FRAMES=2048
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=2048
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=10.088s (p95: 10.166s) us/frame=164.20 (p95: 165.47) Mbins/s=12.48
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.493s (p95: 5.533s) us/frame=89.40 (p95: 90.06) Mbins/s=22.92
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.864s (p95: 1.874s) us/frame=30.34 (p95: 30.50) Mbins/s=67.53
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.382s (p95: 5.392s) us/frame=87.59 (p95: 87.77) Mbins/s=23.39
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=3.943s (p95: 3.967s) us/frame=30.08 (p95: 30.26) Mbins/s=68.11
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.240s (p95: 11.467s) us/frame=85.76 (p95: 87.49) Mbins/s=23.89
+             cache hits/misses/reallocs=82/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=328
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.446s (p95: 2.535s) us/frame=29.86 (p95: 30.94) Mbins/s=68.63
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.009s (p95: 7.055s) us/frame=85.56 (p95: 86.12) Mbins/s=23.95
+             cache hits/misses/reallocs=202/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=404
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  45.55% FASTER than CPU (p95: -45.57%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5445,p95_ratio=0.5443
+[medium     ] GPU is 188.68% SLOWER than CPU (p95: +187.75%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.8868,p95_ratio=2.8775
+[long       ] GPU is 185.08% SLOWER than CPU (p95: +189.10%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.8508,p95_ratio=2.8910
+[stress_mix ] GPU is 186.59% SLOWER than CPU (p95: +178.35%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=2.8659,p95_ratio=2.7835
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5445 p95_ratio=0.5443
+[medium     ] recommend=CPU median_ratio=2.8868 p95_ratio=2.8775
+[long       ] recommend=CPU median_ratio=2.8508 p95_ratio=2.8910
+[stress_mix ] recommend=CPU median_ratio=2.8659 p95_ratio=2.7835
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,10.0884,10.1663,164.20,165.47,12.48,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.8642,1.8740,30.34,30.50,67.53,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,3.9428,3.9666,30.08,30.26,68.11,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.4457,2.5347,29.86,30.94,68.63,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.4927,5.5335,89.40,90.06,22.92,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.3817,5.3924,87.59,87.77,23.39,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.2401,11.4674,85.76,87.49,23.89,82,0,0,0,0,0,0,328
+stress_mix,Gpu,4096,2049,20,10,1,7.0092,7.0554,85.56,86.12,23.95,202,0,0,0,0,0,0,404
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=2048
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.519s (p95: 2.523s) us/frame=41.00 (p95: 41.07) Mbins/s=24.97
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.714s (p95: 2.718s) us/frame=44.18 (p95: 44.24) Mbins/s=23.18
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.455s (p95: 0.464s) us/frame=7.41 (p95: 7.56) Mbins/s=138.23
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.651s (p95: 2.654s) us/frame=43.15 (p95: 43.19) Mbins/s=23.73
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.001s (p95: 1.024s) us/frame=7.64 (p95: 7.81) Mbins/s=134.04
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.592s (p95: 5.601s) us/frame=42.66 (p95: 42.74) Mbins/s=24.00
+             cache hits/misses/reallocs=82/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=328
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.621s (p95: 0.627s) us/frame=7.58 (p95: 7.65) Mbins/s=135.11
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.463s (p95: 3.483s) us/frame=42.27 (p95: 42.51) Mbins/s=24.23
+             cache hits/misses/reallocs=202/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=404
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is   7.75% SLOWER than CPU (p95:  +7.71%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.0775,p95_ratio=1.0771
+[medium     ] GPU is 482.49% SLOWER than CPU (p95: +471.34%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.8249,p95_ratio=5.7134
+[long       ] GPU is 458.42% SLOWER than CPU (p95: +446.85%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.5842,p95_ratio=5.4685
+[stress_mix ] GPU is 457.70% SLOWER than CPU (p95: +455.57%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=5.5770,p95_ratio=5.5557
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.0775 p95_ratio=1.0771
+[medium     ] recommend=CPU median_ratio=5.8249 p95_ratio=5.7134
+[long       ] recommend=CPU median_ratio=5.5842 p95_ratio=5.4685
+[stress_mix ] recommend=CPU median_ratio=5.5770 p95_ratio=5.5557
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.5191,2.5234,41.00,41.07,24.97,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.4551,0.4645,7.41,7.56,138.23,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0013,1.0243,7.64,7.81,134.04,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.6209,0.6269,7.58,7.65,135.11,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.7144,2.7179,44.18,44.24,23.18,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.6511,2.6536,43.15,43.19,23.73,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.5916,5.6014,42.66,42.74,24.00,82,0,0,0,0,0,328
+stress_mix,Gpu,4096,1024,20,10,1,3.4626,3.4828,42.27,42.51,24.23,202,0,0,0,0,0,404
+
+============================================================
+CASE inflight=3 chunk=4096
+============================================================
+WARP_GPU_CHUNK_FRAMES=4096
+
+>>> RUN: cargo run --features gpu-warp --bin warp-bench
+============================================================
+ organum warp_spectrum micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: WARP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=4096
+============================================================
+
+[short      ] Cpu        frames=512 bins=2049 iters=120x5 time=9.977s (p95: 10.150s) us/frame=162.39 (p95: 165.20) Mbins/s=12.62
+[short      ] Gpu        frames=512 bins=2049 iters=120x5 time=5.491s (p95: 5.509s) us/frame=89.37 (p95: 89.67) Mbins/s=22.93
+             cache hits/misses/reallocs=604/1/0 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=2049 iters=30x5 time=1.821s (p95: 1.831s) us/frame=29.65 (p95: 29.81) Mbins/s=69.12
+[medium     ] Gpu        frames=2048 bins=2049 iters=30x5 time=5.359s (p95: 5.381s) us/frame=87.22 (p95: 87.57) Mbins/s=23.49
+             cache hits/misses/reallocs=153/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=2049 iters=16x5 time=3.922s (p95: 3.951s) us/frame=29.92 (p95: 30.14) Mbins/s=68.47
+[long       ] Gpu        frames=8192 bins=2049 iters=16x5 time=11.413s (p95: 11.474s) us/frame=87.08 (p95: 87.54) Mbins/s=23.53
+             cache hits/misses/reallocs=81/0/1 allocs=1 lut_uploads=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=164
+[stress_mix ] Cpu        frames=4096 bins=2049 iters=20x10 time=2.446s (p95: 2.453s) us/frame=29.86 (p95: 29.94) Mbins/s=68.63
+[stress_mix ] Gpu        frames=4096 bins=2049 iters=20x10 time=7.386s (p95: 7.587s) us/frame=90.16 (p95: 92.62) Mbins/s=22.73
+             cache hits/misses/reallocs=202/0/0 allocs=0 lut_uploads=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  44.97% FASTER than CPU (p95: -45.72%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=0.5503,p95_ratio=0.5428
+[medium     ] GPU is 194.20% SLOWER than CPU (p95: +193.80%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=2.9420,p95_ratio=2.9380
+[long       ] GPU is 190.99% SLOWER than CPU (p95: +190.43%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=2.9099,p95_ratio=2.9043
+[stress_mix ] GPU is 201.97% SLOWER than CPU (p95: +209.35%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=3.0197,p95_ratio=3.0935
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=GPU median_ratio=0.5503 p95_ratio=0.5428
+[medium     ] recommend=CPU median_ratio=2.9420 p95_ratio=2.9380
+[long       ] recommend=CPU median_ratio=2.9099 p95_ratio=2.9043
+[stress_mix ] recommend=CPU median_ratio=3.0197 p95_ratio=3.0935
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,lut_uploads,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,2049,120,5,1,9.9774,10.1497,162.39,165.20,12.62,0,0,0,0,0,0,0,0
+medium,Cpu,2048,2049,30,5,1,1.8214,1.8314,29.65,29.81,69.12,0,0,0,0,0,0,0,0
+long,Cpu,8192,2049,16,5,1,3.9222,3.9506,29.92,30.14,68.47,0,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,2049,20,10,1,2.4459,2.4527,29.86,29.94,68.63,0,0,0,0,0,0,0,0
+short,Gpu,512,2049,120,5,1,5.4910,5.5095,89.37,89.67,22.93,604,1,0,1,1,0,0,605
+medium,Gpu,2048,2049,30,5,1,5.3586,5.3805,87.22,87.57,23.49,153,0,0,0,0,0,0,153
+long,Gpu,8192,2049,16,5,1,11.4133,11.4737,87.08,87.54,23.53,81,0,1,1,1,0,0,164
+stress_mix,Gpu,4096,2049,20,10,1,7.3861,7.5874,90.16,92.62,22.73,202,0,0,0,0,0,0,202
+
+>>> RUN: cargo run --features gpu-warp --bin ap-bench
+============================================================
+ organum aperiodicity micro-benchmark
+ config: GPU path uses wgpu when built with --features gpu-warp
+ config: AP_BENCH_GPU_MIN_FRAMES=1
+ config: WARP_GPU_CHUNK_FRAMES=4096
+============================================================
+
+[short      ] Cpu        frames=512 bins=1024 iters=120x5 time=2.615s (p95: 2.621s) us/frame=42.57 (p95: 42.66) Mbins/s=24.06
+[short      ] Gpu        frames=512 bins=1024 iters=120x5 time=2.884s (p95: 2.925s) us/frame=46.94 (p95: 47.61) Mbins/s=21.82
+             cache hits/misses/reallocs=604/1/0 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=605
+[medium     ] Cpu        frames=2048 bins=1024 iters=30x5 time=0.527s (p95: 0.544s) us/frame=8.58 (p95: 8.85) Mbins/s=119.28
+[medium     ] Gpu        frames=2048 bins=1024 iters=30x5 time=2.830s (p95: 2.880s) us/frame=46.06 (p95: 46.87) Mbins/s=22.23
+             cache hits/misses/reallocs=153/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=153
+[long       ] Cpu        frames=8192 bins=1024 iters=16x5 time=1.086s (p95: 1.119s) us/frame=8.28 (p95: 8.54) Mbins/s=123.62
+[long       ] Gpu        frames=8192 bins=1024 iters=16x5 time=5.809s (p95: 5.848s) us/frame=44.32 (p95: 44.61) Mbins/s=23.10
+             cache hits/misses/reallocs=81/0/1 allocs=1 map_errors=0 return_lock_failures=0
+             chunk_dispatches=164
+[stress_mix ] Cpu        frames=4096 bins=1024 iters=20x10 time=0.738s (p95: 0.856s) us/frame=9.01 (p95: 10.45) Mbins/s=113.62
+[stress_mix ] Gpu        frames=4096 bins=1024 iters=20x10 time=3.672s (p95: 3.782s) us/frame=44.82 (p95: 46.17) Mbins/s=22.85
+             cache hits/misses/reallocs=202/0/0 allocs=0 map_errors=0 return_lock_failures=0
+             chunk_dispatches=202
+
+--- Summary (GPU / CPU Ratio) ---
+[short      ] GPU is  10.26% SLOWER than CPU (p95: +11.60%)
+CI_SUMMARY,case=short,threshold=1,median_ratio=1.1026,p95_ratio=1.1160
+[medium     ] GPU is 436.58% SLOWER than CPU (p95: +429.48%)
+CI_SUMMARY,case=medium,threshold=1,median_ratio=5.3658,p95_ratio=5.2948
+[long       ] GPU is 435.05% SLOWER than CPU (p95: +422.57%)
+CI_SUMMARY,case=long,threshold=1,median_ratio=5.3505,p95_ratio=5.2257
+[stress_mix ] GPU is 397.32% SLOWER than CPU (p95: +341.89%)
+CI_SUMMARY,case=stress_mix,threshold=1,median_ratio=4.9732,p95_ratio=4.4189
+
+--- Routing Recommendation ---
+rule: GPU when median improves >=3% and p95 regression <=5%
+[short      ] recommend=CPU median_ratio=1.1026 p95_ratio=1.1160
+[medium     ] recommend=CPU median_ratio=5.3658 p95_ratio=5.2948
+[long       ] recommend=CPU median_ratio=5.3505 p95_ratio=5.2257
+[stress_mix ] recommend=CPU median_ratio=4.9732 p95_ratio=4.4189
+
+--- CSV Output ---
+name,backend,frames,bins,iters,repeats,gpu_min_frames,median_secs,p95_secs,median_us_frame,p95_us_frame,mbins_sec,cache_hits,cache_misses,cache_reallocs,buffer_allocations,map_errors,cache_return_lock_failures,chunk_dispatches
+short,Cpu,512,1024,120,5,1,2.6154,2.6213,42.57,42.66,24.06,0,0,0,0,0,0,0
+medium,Cpu,2048,1024,30,5,1,0.5275,0.5438,8.58,8.85,119.28,0,0,0,0,0,0,0
+long,Cpu,8192,1024,16,5,1,1.0857,1.1190,8.28,8.54,123.62,0,0,0,0,0,0,0
+stress_mix,Cpu,4096,1024,20,10,1,0.7383,0.8559,9.01,10.45,113.62,0,0,0,0,0,0,0
+short,Gpu,512,1024,120,5,1,2.8838,2.9254,46.94,47.61,21.82,604,1,0,1,0,0,605
+medium,Gpu,2048,1024,30,5,1,2.8302,2.8796,46.06,46.87,22.23,153,0,0,0,0,0,153
+long,Gpu,8192,1024,16,5,1,5.8090,5.8477,44.32,44.61,23.10,81,0,1,1,0,0,164
+stress_mix,Gpu,4096,1024,20,10,1,3.6718,3.7822,44.82,46.17,22.85,202,0,0,0,0,0,202
+Done. Log saved to: benchmarks/v0.0.4/bench-results/bench-20260309-150653.txt
+Summary saved to: benchmarks/v0.0.4/bench-results/bench-20260309-150653.summary.txt
