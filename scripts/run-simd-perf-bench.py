@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple
 from simd_common import (
     cache_path_for_wav,
     load_samples,
+    read_project_version,
     read_feature_extension,
     resolve_resampler_cmd,
     run_resampler_capture_total_ms,
@@ -33,7 +34,7 @@ def p95(values: List[float]) -> float:
 def main() -> int:
     p = argparse.ArgumentParser(description="Benchmark ORGANUM_AP_SIMD on/off and emit markdown summary")
     p.add_argument("--samples", default="samples.txt", help="Path to samples.txt")
-    p.add_argument("--out-dir", default="simd-bench", help="Output directory")
+    p.add_argument("--out-dir", default=None, help="Output directory (default: benchmarks/<version>/simd-bench)")
     p.add_argument("--length-ms", type=int, default=500, help="Render length_req in ms")
     p.add_argument("--repeats", type=int, default=3, help="Runs per sample/case")
     p.add_argument(
@@ -44,7 +45,8 @@ def main() -> int:
     args = p.parse_args()
 
     root = Path.cwd()
-    out_dir = (root / args.out_dir).resolve()
+    default_out_dir = root / "benchmarks" / read_project_version(root / "Cargo.toml") / "simd-bench"
+    out_dir = Path(args.out_dir).resolve() if args.out_dir else default_out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     samples = load_samples(root, Path(args.samples))

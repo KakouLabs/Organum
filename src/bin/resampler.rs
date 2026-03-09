@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use tracing_subscriber::EnvFilter;
 
-const RESAMPLER_USAGE: &str = "Usage:\n  organum-resampler [--verbose] [--log-format pretty|json] <input> <output> <pitch> <velocity> [flags offset length_req fixed_length end_blank volume modulation !tempo pitchbend]\n\nExamples:\n  organum-resampler input.wav output.wav C4 100\n  organum-resampler input.wav output.wav C4 100 g+10B60A120 0 480 0 0 100 30 !120 #5#10#0\n  organum-resampler --json request.json\n\nNotes:\n  - Flags are case-insensitive. Common flags: g, B, M, t, A, P, C, H, D, F\n  - If flags is empty, use '-'\n  - tempo should look like '!120'\n";
+const RESAMPLER_USAGE: &str = "Usage:\n  organum-resampler [--verbose] [--log-format pretty|json] <input> <output> <pitch> <velocity> [flags offset length_req fixed_length end_blank volume modulation !tempo pitchbend]\n\nExamples:\n  organum-resampler input.wav output.wav C4 100\n  organum-resampler input.wav output.wav C4 100 g+10B60A120 0 480 0 0 100 30 !120 #5#10#0\n  organum-resampler --json request.json\n\nNotes:\n  - Flags are case-insensitive. Common flags: g, B, M, t, A, P, C, H, D, F\n  - If flags is empty, use '-'\n  - tempo accepts both '!120' and '120'\n";
 
 fn init_tracing(verbose: bool, json_logs: bool) {
     let env_filter = if verbose {
@@ -106,6 +106,21 @@ fn parse_json_mode(args: &[String]) -> bool {
     false
 }
 
+fn parse_tempo_arg_or_exit(raw: &str) -> f32 {
+    let trimmed = raw.trim();
+    let numeric = trimmed.strip_prefix('!').unwrap_or(trimmed);
+    match numeric.parse::<f32>() {
+        Ok(v) if v > 0.0 => v,
+        _ => {
+            eprintln!(
+                "Invalid tempo '{}'. Expected '!120' or '120'.\n\n{}",
+                raw, RESAMPLER_USAGE
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let raw_args: Vec<String> = env::args().collect();
     let (args, verbose, json_logs) = parse_runtime_log_options(raw_args);
@@ -158,14 +173,14 @@ fn main() {
         warn_unknown_flags(&flags);
     }
 
+    let tempo_raw = args.get(12).cloned().unwrap_or_else(|| "!120".to_string());
+    let tempo = parse_tempo_arg_or_exit(&tempo_raw);
+
     let offset = parse_f32_arg_or_exit(&args, 6, "offset", 0.0, "Expected milliseconds as number.");
-    let length_req = parse_f32_arg_or_exit(
-        &args,
-        7,
-        "length_req",
-        0.0,
-        "Expected milliseconds as number.",
-    );
+    let length_req = args
+        .get(7)
+        .map(|raw| organum::utils::parse_utau_length(raw, tempo))
+        .unwrap_or(0.0);
     let fixed_length = parse_f32_arg_or_exit(
         &args,
         8,
@@ -180,7 +195,14 @@ fn main() {
         0.0,
         "Expected milliseconds as number.",
     );
-    let _volume: f32 = args.get(10).and_then(|s| s.parse().ok()).unwrap_or(100.0);
+    let volume = parse_f32_arg_or_exit(
+        &args,
+        10,
+        "volume",
+        100.0,
+        "Expected a number, typically 0~200.",
+    );
+    warn_if_out_of_range("volume", volume, 0.0, 200.0);
     let modulation = parse_f32_arg_or_exit(
         &args,
         11,
@@ -190,19 +212,12 @@ fn main() {
     );
     warn_if_out_of_range("modulation", modulation, 0.0, 100.0);
 
-    let tempo_raw = args.get(12).cloned().unwrap_or_else(|| "!120".to_string());
-    if !tempo_raw.starts_with('!') {
-        eprintln!(
-            "Invalid tempo '{}'. Tempo should start with '!' (example: !120).\n\n{}",
-            tempo_raw, RESAMPLER_USAGE
-        );
-        std::process::exit(1);
-    }
     let pitchbend_raw = args.get(13).cloned().unwrap_or_default();
 
     let (tempo, pitchbends) = organum::utils::parse_pitchbend(&tempo_raw, &pitchbend_raw);
 
     let mut actual_flags = flags;
+    actual_flags.push_str(&format!("A{}", volume));
     if modulation != 0.0 {
         actual_flags.push_str(&format!("M{}", modulation));
     }

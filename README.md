@@ -21,6 +21,7 @@ Organum is a resampler engine for UTAU and OpenUtau. WORLD vocoder 기반의 분
 
 1. [Releases](https://github.com/KakouLabs/Organum/releases) 페이지에서 바이너리를 다운로드합니다.
    - 각 플랫폼별로 `*-cpu`(기본 CPU 빌드)와 `*-cpu-gpu`(`gpu-warp` 기능 포함) 아카이브가 제공됩니다.
+   - `organum-wavtool`은 현재 Windows에서만 제공합니다. Linux/macOS 아카이브에는 `organum-resampler`, `caching-tool`만 포함됩니다.
    - 최신 릴리즈에는 벤치 요약/로그 asset이 함께 포함될 수 있습니다.
 2. OpenUtau의 `Resamplers` 디렉토리에 배치합니다.
 
@@ -29,7 +30,10 @@ Organum is a resampler engine for UTAU and OpenUtau. WORLD vocoder 기반의 분
 OpenUtau 또는 UTAU에서:
 
 1. `organum-resampler`를 Resampler로 설정
-2. `organum-wavtool`을 Wavtool로 설정
+2. Windows에서는 `organum-wavtool`을 Wavtool로 설정
+3. Linux/macOS에서는 다음 중 하나를 사용
+   - `wine organum-wavtool.exe`로 Windows wavtool 실행
+   - OpenUtau 기본 wavtool 사용
 
 ### Logging
 
@@ -44,6 +48,10 @@ OpenUtau 또는 UTAU에서:
 ./organum-resampler --verbose --log-format json ...
 ./organum-wavtool --log-format json ...
 ./caching-tool.exe --verbose --log-format json "C:\Path\To\Your\Voicebank"
+```
+
+```bash
+wine organum-wavtool.exe --log-format json ...
 ```
 
 ### Voicebank 캐싱
@@ -90,9 +98,6 @@ cargo build --workspace --release
 ```bash
 ./build.sh
 ```
-
-> [!IMPORTANT]
-> OpenUtau는 `.ogc` 확장자를 기본 지원하지 않습니다. `feature_extension`을 `llsm`으로 변경하면 OpenUtau의 캐시 관리와 호환됩니다.
 
 ## Comparison
 

@@ -1,7 +1,8 @@
 param(
     [string[]]$InflightValues = @("1", "2", "3"),
     [string[]]$ChunkValues = @("auto", "2048", "4096"),
-    [string]$OutputDir = "bench-results",
+    [string]$OutputDir = "",
+    [string]$BenchVersion = "",
     [string]$CargoProfile = "dev"
 )
 
@@ -12,6 +13,47 @@ if (-not $cargoCmd) {
     throw "cargo not found. Install Rust toolchain first."
 }
 $cargoExe = $cargoCmd.Source
+
+function Get-VersionTag {
+    param([string]$RootPath)
+
+    if ($BenchVersion) {
+        if ($BenchVersion.StartsWith("v")) {
+            return $BenchVersion
+        }
+        return "v$BenchVersion"
+    }
+
+    $cargoToml = Join-Path $RootPath "Cargo.toml"
+    if (-not (Test-Path $cargoToml)) {
+        return "v0.0.0"
+    }
+
+    $inPackage = $false
+    foreach ($line in Get-Content $cargoToml) {
+        if ($line -match '^\[package\]') {
+            $inPackage = $true
+            continue
+        }
+        if ($line -match '^\[' -and $inPackage) {
+            break
+        }
+        if ($inPackage -and $line -match '^\s*version\s*=\s*"([^"]+)"') {
+            $v = $Matches[1]
+            if ($v.StartsWith("v")) {
+                return $v
+            }
+            return "v$v"
+        }
+    }
+
+    return "v0.0.0"
+}
+
+$versionTag = Get-VersionTag -RootPath (Get-Location)
+if (-not $OutputDir) {
+    $OutputDir = "benchmarks/$versionTag/bench-results"
+}
 
 function Run-Bench {
     param(

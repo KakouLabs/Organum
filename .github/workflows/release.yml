@@ -71,8 +71,13 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.5
 
-      - name: Build organum engine and caching-tool
+      - name: Build on Windows (includes wavtool)
+        if: matrix.os == 'windows-latest'
         run: cargo build --release --workspace ${{ matrix.cargo_features }}
+
+      - name: Build on Linux/macOS (wavtool disabled)
+        if: matrix.os != 'windows-latest'
+        run: cargo build --release ${{ matrix.cargo_features }} --bin organum-resampler --bin caching-tool
 
 
 
@@ -81,7 +86,9 @@ jobs:
         run: |
           mkdir -p artifacts
           cp target/release/organum-resampler${{ matrix.asset_extension }} artifacts/
-          cp target/release/organum-wavtool${{ matrix.asset_extension }} artifacts/
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp target/release/organum-wavtool${{ matrix.asset_extension }} artifacts/
+          fi
           cp target/release/caching-tool${{ matrix.asset_extension }} artifacts/
           printf "%s\n" "${{ matrix.variant }}" > artifacts/BUILD_VARIANT.txt
 
@@ -177,12 +184,14 @@ jobs:
 
           ### Assets
 
-          - `organum-windows-cpu.zip`
-          - `organum-windows-cpu-gpu.zip`
-          - `organum-linux-cpu.tar.gz`
-          - `organum-linux-cpu-gpu.tar.gz`
-          - `organum-macos-cpu.tar.gz`
-          - `organum-macos-cpu-gpu.tar.gz`
+          - `organum-windows-cpu.zip` (includes `organum-resampler`, `organum-wavtool`, `caching-tool`)
+          - `organum-windows-cpu-gpu.zip` (includes `organum-resampler`, `organum-wavtool`, `caching-tool`)
+          - `organum-linux-cpu.tar.gz` (includes `organum-resampler`, `caching-tool`)
+          - `organum-linux-cpu-gpu.tar.gz` (includes `organum-resampler`, `caching-tool`)
+          - `organum-macos-cpu.tar.gz` (includes `organum-resampler`, `caching-tool`)
+          - `organum-macos-cpu-gpu.tar.gz` (includes `organum-resampler`, `caching-tool`)
+
+          > Note: `organum-wavtool` is currently provided only for Windows.
           EOF
 
           {

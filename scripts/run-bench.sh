@@ -3,7 +3,34 @@ set -euo pipefail
 
 INFLIGHT_VALUES=(${INFLIGHT_VALUES:-1 2 3})
 CHUNK_VALUES=(${CHUNK_VALUES:-auto 2048 4096})
-OUTPUT_DIR="${OUTPUT_DIR:-bench-results}"
+
+read_version_tag() {
+  local cargo_toml="Cargo.toml"
+  if [[ ! -f "$cargo_toml" ]]; then
+    printf "v0.0.0"
+    return
+  fi
+
+  local ver
+  ver="$(
+    awk -F'"' '
+      /^\[package\]/ { in_pkg=1; next }
+      /^\[/ { if (in_pkg) exit }
+      in_pkg && $0 ~ /^[[:space:]]*version[[:space:]]*=/ { print $2; exit }
+    ' "$cargo_toml"
+  )"
+
+  if [[ -z "$ver" ]]; then
+    printf "v0.0.0"
+  elif [[ "$ver" == v* ]]; then
+    printf "%s" "$ver"
+  else
+    printf "v%s" "$ver"
+  fi
+}
+
+VERSION_TAG="${BENCH_VERSION:-$(read_version_tag)}"
+OUTPUT_DIR="${OUTPUT_DIR:-benchmarks/$VERSION_TAG/bench-results}"
 PROFILE="${PROFILE:-dev}"
 
 if ! command -v cargo >/dev/null 2>&1; then

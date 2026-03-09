@@ -23,7 +23,7 @@ cargo build --release
 ## 2) 검증 실행
 
 ```bash
-python scripts/run-simd-validation.py --samples samples.txt --out-dir simd-validation
+python scripts/run-simd-validation.py --samples samples.txt
 ```
 
 Windows에서 확실히 지정하려면:
@@ -32,10 +32,15 @@ Windows에서 확실히 지정하려면:
 python scripts/run-simd-validation.py --samples samples.txt --resampler-cmd "target/release/organum-resampler.exe"
 ```
 
+기본 출력 경로:
+
+- `benchmarks/<현재 버전>/simd-validation/metrics.csv`
+- `benchmarks/<현재 버전>/simd-validation/metrics_summary.md`
+
 ## 3) 결과 확인
 
-- 수치 상세 CSV: `simd-validation/metrics.csv`
-- 요약 문서: `simd-validation/metrics_summary.md`
+- 수치 상세 CSV: `benchmarks/<현재 버전>/simd-validation/metrics.csv`
+- 요약 문서: `benchmarks/<현재 버전>/simd-validation/metrics_summary.md`
 
 ## 참고
 

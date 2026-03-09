@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple
 from simd_common import (
     cache_path_for_wav,
     load_samples,
+    read_project_version,
     read_feature_extension,
     resolve_resampler_cmd,
     run_resampler,
@@ -99,7 +100,7 @@ def null_stats(a_wav: Path, b_wav: Path) -> Tuple[float, float]:
 def main() -> int:
     p = argparse.ArgumentParser(description="Run SIMD A/B/C/D validation matrix")
     p.add_argument("--samples", required=True, help="Path to samples.txt")
-    p.add_argument("--out-dir", default="simd-validation", help="Output directory")
+    p.add_argument("--out-dir", default=None, help="Output directory (default: benchmarks/<version>/simd-validation)")
     p.add_argument("--length-ms", type=int, default=500, help="Render length_req in ms")
     p.add_argument(
         "--resampler-cmd",
@@ -113,7 +114,8 @@ def main() -> int:
     args = p.parse_args()
 
     root = Path.cwd()
-    out_dir = (root / args.out_dir).resolve()
+    default_out_dir = root / "benchmarks" / read_project_version(root / "Cargo.toml") / "simd-validation"
+    out_dir = Path(args.out_dir).resolve() if args.out_dir else default_out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     samples = load_samples(root, Path(args.samples))

@@ -20,6 +20,17 @@ def read_feature_extension(config_path: Path) -> str:
     return m.group(1) if m else "ogc"
 
 
+def read_project_version(cargo_toml_path: Path) -> str:
+    if not cargo_toml_path.exists():
+        return "v0.0.0"
+    text = cargo_toml_path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r'^\s*version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:[-+][^"\s]+)?)"\s*$', text, re.M)
+    if not m:
+        return "v0.0.0"
+    ver = m.group(1)
+    return ver if ver.startswith("v") else f"v{ver}"
+
+
 def cache_path_for_wav(wav_path: Path, ext: str) -> Path:
     return wav_path.with_suffix(f".wav.{ext}")
 
