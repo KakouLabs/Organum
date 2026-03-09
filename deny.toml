@@ -3,7 +3,9 @@ targets = []
 all-features = true
 
 [advisories]
-unmaintained = "warn"
+# cargo-deny v0.18+ no longer accepts lint levels (warn/deny/allow) here.
+# Use scope-based modes: all | workspace | transitive | none.
+unmaintained = "workspace"
 yanked = "warn"
 ignore = []
 
