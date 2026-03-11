@@ -84,15 +84,15 @@ pub fn interpolate_frames(vec_2d: &[Vec<f64>], points: &[f64]) -> Vec<Vec<f64>> 
     }
     let n_frames = vec_2d.len();
     let n_dims = vec_2d[0].len();
+    let out_len = points.len();
+    let mut out = vec![vec![0.0; n_dims]; out_len];
+    let last = (n_frames - 1) as f64;
 
-    let map_point = |&p: &f64| {
-        let mut out_frame = Vec::with_capacity(n_dims);
-        let last = (n_frames - 1) as f64;
-
+    let fill_frame = |out_frame: &mut [f64], p: f64| {
         if p <= 0.0 {
-            out_frame.extend_from_slice(&vec_2d[0]);
+            out_frame.copy_from_slice(&vec_2d[0]);
         } else if p >= last {
-            out_frame.extend_from_slice(&vec_2d[n_frames - 1]);
+            out_frame.copy_from_slice(&vec_2d[n_frames - 1]);
         } else {
             let idx = p as usize;
             let frac = p - idx as f64;
@@ -100,17 +100,23 @@ pub fn interpolate_frames(vec_2d: &[Vec<f64>], points: &[f64]) -> Vec<Vec<f64>> 
             let frame_a = &vec_2d[idx];
             let frame_b = &vec_2d[idx + 1];
             for d in 0..n_dims {
-                out_frame.push(frame_a[d] * inv_frac + frame_b[d] * frac);
+                out_frame[d] = frame_a[d] * inv_frac + frame_b[d] * frac;
             }
         }
-        out_frame
     };
 
-    if points.len() < 2048 {
-        points.iter().map(map_point).collect()
+    const PAR_THRESHOLD: usize = 1536;
+    if out_len < PAR_THRESHOLD {
+        out.iter_mut()
+            .zip(points.iter().copied())
+            .for_each(|(dst, p)| fill_frame(dst, p));
     } else {
-        points.par_iter().map(map_point).collect()
+        out.par_iter_mut()
+            .zip(points.par_iter().copied())
+            .for_each(|(dst, p)| fill_frame(dst, p));
     }
+
+    out
 }
 
 pub fn to_feature_path(path: &Path, ext: &str) -> std::path::PathBuf {

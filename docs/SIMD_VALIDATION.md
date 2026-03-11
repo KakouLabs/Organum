@@ -2,7 +2,9 @@
 
 `scripts/run-simd-validation.py`를 사용해 A/B/C/D 검증 매트릭스를 자동 실행할 수 있습니다.
 
-## 준비물
+[한국어](SIMD_VALIDATION.md) | [English](en/SIMD_VALIDATION.md) | [日本語](ja/SIMD_VALIDATION.md)
+
+---
 
 - `samples.txt` (한 줄에 wav 경로 하나)
 - `target/release/organum-resampler` 빌드 완료

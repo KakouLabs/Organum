@@ -14,6 +14,8 @@ pub fn apply_aperiodicity_mods(
     vuv_render: &[bool],
     params: &AperiodicityStageParams,
 ) {
+    const GPU_AP_MIN_SAFE_FRAMES: usize = 64;
+
     let AperiodicityStageParams {
         scaled_cons_sec,
         fps,
@@ -33,8 +35,11 @@ pub fn apply_aperiodicity_mods(
     } else {
         0.0
     };
-    let breathiness_factor = (b_flag.clamp(0.0, 100.0) - 50.0) / 50.0;
-    let b_scale = b_flag.clamp(0.0, 100.0) / 50.0;
+    let raw_breathiness_factor = (b_flag.clamp(0.0, 100.0) - 50.0) / 50.0;
+    let spectral_control = h_factor.max(c_factor);
+    let breathiness_cap = (1.0 - spectral_control * 0.35).clamp(0.55, 1.0);
+    let breathiness_factor = raw_breathiness_factor.clamp(-breathiness_cap, breathiness_cap);
+    let b_scale = (1.0 + breathiness_factor).clamp(0.0, 2.0);
 
     let onset_fadein_frames = if scaled_cons_sec > 0.0 {
         ((0.050_f64).min(scaled_cons_sec * 0.25) * fps).round() as usize
@@ -42,7 +47,7 @@ pub fn apply_aperiodicity_mods(
         0
     };
 
-    if matches!(device, Device::Gpu) {
+    if matches!(device, Device::Gpu) && ap_render.len() >= GPU_AP_MIN_SAFE_FRAMES {
         match synthesis::try_apply_aperiodicity_gpu_batch(
             ap_render,
             vuv_render,

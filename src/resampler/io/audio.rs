@@ -44,7 +44,12 @@ pub fn resample_audio(audio: &[f64], in_fs: u32, out_fs: u32) -> Result<Vec<f64>
     Ok(resampled)
 }
 
-pub fn write_audio(path: &Path, audio: &[f64], sample_rate: u32) -> Result<()> {
+pub fn write_audio(
+    path: &Path,
+    audio: &[f64],
+    sample_rate: u32,
+    output_dither: bool,
+) -> Result<()> {
     let spec = hound::WavSpec {
         channels: 1,
         sample_rate,
@@ -54,18 +59,25 @@ pub fn write_audio(path: &Path, audio: &[f64], sample_rate: u32) -> Result<()> {
     let file = std::fs::File::create(path)?;
     let buf_writer = std::io::BufWriter::with_capacity(256 * 1024, file);
     let mut writer = hound::WavWriter::new(buf_writer, spec)?;
-    let mut error_accum = 0.0_f64;
-    let mut prng = crate::utils::XorShift32::new(0x12345678);
-    for &x in audio {
-        let scaled = x * 32767.0 + error_accum;
+    if output_dither {
+        let mut error_accum = 0.0_f64;
+        let mut prng = crate::utils::XorShift32::new(0x12345678);
+        for &x in audio {
+            let scaled = x * 32767.0 + error_accum;
 
-        let r1 = prng.next_f32() as f64;
-        let r2 = prng.next_f32() as f64;
-        let dither = r1 + r2;
+            let r1 = prng.next_f32() as f64;
+            let r2 = prng.next_f32() as f64;
+            let dither = r1 + r2;
 
-        let q = (scaled + dither).round().clamp(-32768.0, 32767.0) as i16;
-        error_accum = scaled - q as f64;
-        writer.write_sample(q)?;
+            let q = (scaled + dither).round().clamp(-32768.0, 32767.0) as i16;
+            error_accum = scaled - q as f64;
+            writer.write_sample(q)?;
+        }
+    } else {
+        for &x in audio {
+            let q = (x * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
+            writer.write_sample(q)?;
+        }
     }
     writer.finalize()?;
     Ok(())

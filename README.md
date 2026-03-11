@@ -8,14 +8,22 @@
 
 ---
 
-Organum is a resampler engine for UTAU and OpenUtau. WORLD vocoder 기반의 분석/합성 파이프라인을 Rust로 구현했습니다.
+[한국어](README.md) | [English](docs/en/README.md) | [日本語](docs/ja/README.md)
+
+Organum은 UTAU 및 OpenUtau용 리샘플러 엔진입니다. WORLD vocoder 기반의 분석/합성 파이프라인을 Rust로 구현했습니다.
 
 ## Features
 
-- WORLD vocoder 기반 spectral analysis & synthesis
+- WORLD vocoder 기반 스펙트럼 분석 및 합성
 - Rayon을 이용한 병렬 처리
 - `organum.yaml`을 통한 설정 커스터마이징
 - Zstd 압축 캐시 (`.ogc`)로 반복 분석 생략
+
+## GPU Route Notice
+
+- `gpu-warp` 경로는 **실험적 기능**입니다.
+- 현재 구현은 GPU 왕복 오버헤드(업로드/리드백)로 인해, 실사용 구간에서 CPU(SIMD/병렬)보다 **느릴 수 있어 권장하지 않습니다**.
+- 기본값은 비활성화(`gpu_warp_enabled: false`)이며, 특별한 벤치/실험 목적이 아니면 CPU 경로 사용을 권장합니다.
 
 ## Installation
 

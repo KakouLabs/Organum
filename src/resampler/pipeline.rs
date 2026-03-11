@@ -28,6 +28,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let input_path = Path::new(&req.input_file);
     let output_path = Path::new(&req.output_file);
     let feature_path = to_feature_path(input_path, feat_ext);
+    let output_dither = config.output_dither;
 
     let start_features = Instant::now();
     let features = if feature_path.exists() {
@@ -166,7 +167,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
 
     // Write final waveform.
     let start_write = Instant::now();
-    write_audio(output_path, &syn, sample_rate)?;
+    write_audio(output_path, &syn, sample_rate, output_dither)?;
     tracing::debug!("Write stage completed in {:?}", start_write.elapsed());
 
     tracing::info!(

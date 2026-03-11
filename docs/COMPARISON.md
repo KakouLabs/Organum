@@ -2,7 +2,9 @@
 
 Organum과 다른 UTAU/OpenUtau 엔진과의 비교.
 
-## Resampling Speed
+[한국어](COMPARISON.md) | [English](en/COMPARISON.md) | [日本語](ja/COMPARISON.md)
+
+---
 
 Kasane Teto UTAU voicebank 기준, 약 500ms 세그먼트 처리 시간.
 

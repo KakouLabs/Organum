@@ -79,20 +79,33 @@ pub fn calculate_timing(
         t_in_sec * fps
     };
 
-    let t_render: Vec<f64> = if render_length < 2048 {
+    let t_render: Vec<f64> = if render_length < 1536 {
         (0..render_length).map(t_map).collect()
     } else {
         (0..render_length).into_par_iter().map(t_map).collect()
     };
 
     let f0_off_interp = LinearInterpolator::new(&f0_off);
-    let f0_off_render = f0_off_interp.sample_vec_adaptive(&t_render);
     let vuv_map = |&t: &f64| vuv[(t.round() as usize).clamp(0, feature_length - 1)];
-    let vuv_render: Vec<bool> = if render_length < 2048 {
-        t_render.iter().map(vuv_map).collect()
+    let (f0_off_render, mut vuv_render): (Vec<f64>, Vec<bool>) = if render_length < 1536 {
+        t_render
+            .iter()
+            .map(|&t| (f0_off_interp.sample(t), vuv_map(&t)))
+            .unzip()
     } else {
-        t_render.par_iter().map(vuv_map).collect()
+        t_render
+            .par_iter()
+            .map(|&t| (f0_off_interp.sample(t), vuv_map(&t)))
+            .unzip()
     };
+    for i in 1..render_length.saturating_sub(1) {
+        let prev = vuv_render[i - 1];
+        let curr = vuv_render[i];
+        let next = vuv_render[i + 1];
+        if curr != prev && curr != next {
+            vuv_render[i] = prev;
+        }
+    }
 
     Ok(TimingData {
         render_length,

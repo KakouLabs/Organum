@@ -10,6 +10,8 @@ pub fn apply_warp_and_tilt(
     target_base_f0: f64,
     device: Device,
 ) {
+    const GPU_WARP_MIN_SAFE_FRAMES: usize = 64;
+
     let (do_tilt, tilt_intensity, fft_size_half, nyquist) = if target_base_f0 > 350.0 {
         (
             true,
@@ -45,13 +47,17 @@ pub fn apply_warp_and_tilt(
         );
     }
     let tilt_factors: Option<Vec<f64>> = if do_tilt {
+        const TILT_START_HZ: f64 = 4200.0;
+        const TILT_SPAN_HZ: f64 = 5500.0;
+        const TILT_STRENGTH: f64 = 1.2;
+
         let sp_len = sp_render.first().map(|f| f.len()).unwrap_or(0);
         let factors: Vec<f64> = (0..sp_len)
             .map(|d| {
                 let freq = (d as f64 / fft_size_half) * nyquist;
-                if freq > 3500.0 {
-                    let freq_scale: f64 = (freq - 3500.0) / 4000.0;
-                    1.0 / (1.0 + tilt_intensity * 2.0 * freq_scale.powi(2))
+                if freq > TILT_START_HZ {
+                    let freq_scale: f64 = (freq - TILT_START_HZ) / TILT_SPAN_HZ;
+                    1.0 / (1.0 + tilt_intensity * TILT_STRENGTH * freq_scale.powi(2))
                 } else {
                     1.0
                 }
@@ -66,7 +72,9 @@ pub fn apply_warp_and_tilt(
 
     if let Some(ref lut) = warp_lut {
         let mut gpu_applied = false;
-        if matches!(warp_backend, synthesis::WarpBackend::Gpu) {
+        if matches!(warp_backend, synthesis::WarpBackend::Gpu)
+            && render_length >= GPU_WARP_MIN_SAFE_FRAMES
+        {
             match synthesis::try_apply_warp_batch_with_backend(sp_render, lut, warp_backend) {
                 Ok(()) => {
                     gpu_applied = true;

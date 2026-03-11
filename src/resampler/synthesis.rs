@@ -506,11 +506,14 @@ pub fn apply_aperiodicity_cpu_batch(
     breathiness_factor: f64,
     b_scale: f64,
 ) {
+    const ONSET_BREATH_MAX: f64 = 0.6;
+    const SIMD_F32_CONVERT_MIN_BINS: usize = 512;
+
     #[inline]
     fn onset_breath_factor_at(index: usize, onset_fadein_frames: usize) -> f64 {
         if onset_fadein_frames > 0 && index < onset_fadein_frames {
             let progress = index as f64 / onset_fadein_frames as f64;
-            1.0 - (1.0 - (progress * std::f64::consts::PI).cos()) * 0.5
+            (1.0 - (1.0 - (progress * std::f64::consts::PI).cos()) * 0.5) * ONSET_BREATH_MAX
         } else {
             0.0
         }
@@ -550,7 +553,7 @@ pub fn apply_aperiodicity_cpu_batch(
                 b_scale,
             );
 
-            if use_simd {
+            if use_simd && frame.len() >= SIMD_F32_CONVERT_MIN_BINS {
                 apply_aperiodicity_frame_simd_f32_with_scratch(
                     frame.as_mut_slice(),
                     is_voiced,
@@ -575,12 +578,16 @@ pub fn apply_aperiodicity_cpu_batch(
                     b_scale,
                 );
 
-                apply_aperiodicity_frame_simd_f32_with_scratch(
-                    frame.as_mut_slice(),
-                    is_voiced,
-                    params,
-                    scratch_f32,
-                );
+                if frame.len() >= SIMD_F32_CONVERT_MIN_BINS {
+                    apply_aperiodicity_frame_simd_f32_with_scratch(
+                        frame.as_mut_slice(),
+                        is_voiced,
+                        params,
+                        scratch_f32,
+                    );
+                } else {
+                    apply_aperiodicity_frame_scalar(frame.as_mut_slice(), is_voiced, params);
+                }
             },
         );
     } else {

@@ -2,7 +2,9 @@
 
 Organum은 YAML 설정 파일로 동작을 커스터마이즈할 수 있습니다. 첫 실행 시 `organum.yaml`이 실행 파일과 같은 디렉토리에 자동 생성됩니다.
 
-## Parameters
+[한국어](CONFIGURATION.md) | [English](en/CONFIGURATION.md) | [日本語](ja/CONFIGURATION.md)
+
+---
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -12,6 +14,9 @@ Organum은 YAML 설정 파일로 동작을 커스터마이즈할 수 있습니�
 | `zstd_compression_level` | integer | `3` | 캐시 압축 레벨 (1-22) |
 | `gpu_warp_enabled` | boolean | `false` | `warp_spectrum` 실험 GPU 경로 사용 여부 |
 | `gpu_warp_min_frames` | integer | `2048` | GPU 경로를 시도할 최소 렌더 프레임 길이 |
+| `output_dither` | boolean | `true` | WAV 출력 시 디더링/노이즈 쉐이핑 사용 여부 |
+
+> 참고: GPU 경로는 실험적 기능이며, 현재 구현 특성상(업로드/리드백 오버헤드) 일반적인 렌더링에서는 CPU(SIMD/병렬)보다 느릴 수 있습니다. 기본값(`false`) 유지 권장.
 
 ## Example
 
@@ -22,6 +27,7 @@ frame_period: 5.0
 zstd_compression_level: 3
 gpu_warp_enabled: false
 gpu_warp_min_frames: 2048
+output_dither: true
 ```
 
 ## Cache Compatibility Policy

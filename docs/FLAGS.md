@@ -2,7 +2,9 @@
 
 Organum에서 지원하는 리샘플러 플래그 목록. 대소문자 구분 없이 사용 가능합니다.
 
-## Flag List
+[한국어](FLAGS.md) | [English](en/FLAGS.md) | [日本語](ja/FLAGS.md)
+
+---
 
 | Flag | Name | Range | Neutral | Description |
 | :--- | :--- | :--- | :--- | :--- |
