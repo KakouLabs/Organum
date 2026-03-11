@@ -1,0 +1,5 @@
+case,runs,median_ms,p95_ms
+A_cache_off_simd_off,30,682.800608,1671.930650
+B_cache_off_simd_on,30,697.772937,1649.850260
+C_cache_on_simd_off,30,45.615470,49.511530
+D_cache_on_simd_on,30,45.516469,50.400330
