@@ -7,7 +7,7 @@ pub struct TimingData {
     pub render_length: usize,
     pub t_render: Vec<f64>,
     pub f0_off_render: Vec<f64>,
-    pub vuv_render: Vec<bool>,
+    pub vuv_render: Vec<u8>,
     pub scaled_cons_sec: f64,
 }
 
@@ -23,18 +23,18 @@ pub fn calculate_timing(
     }
 
     let feature_length_sec = feature_length as f64 / fps;
-    let vuv: Vec<bool> = f0.iter().map(|&f| f > 0.0).collect();
     let base_f0_log2 = base_f0.log2();
-    let f0_off: Vec<f64> = f0
-        .iter()
-        .map(|&f| {
-            if f == 0.0 {
-                0.0
-            } else {
-                12.0 * (f.log2() - base_f0_log2)
-            }
-        })
-        .collect();
+    let mut vuv = Vec::with_capacity(feature_length);
+    let mut f0_off = Vec::with_capacity(feature_length);
+    for &f in f0 {
+        if f > 0.0 {
+            vuv.push(1);
+            f0_off.push(12.0 * (f.log2() - base_f0_log2));
+        } else {
+            vuv.push(0);
+            f0_off.push(0.0);
+        }
+    }
 
     let start_sec = req.offset as f64 / 1000.0;
     let end_sec = if req.cutoff < 0.0 {
@@ -87,7 +87,7 @@ pub fn calculate_timing(
 
     let f0_off_interp = LinearInterpolator::new(&f0_off);
     let vuv_map = |&t: &f64| vuv[(t.round() as usize).clamp(0, feature_length - 1)];
-    let (f0_off_render, mut vuv_render): (Vec<f64>, Vec<bool>) = if render_length < 1536 {
+    let (f0_off_render, mut vuv_render): (Vec<f64>, Vec<u8>) = if render_length < 1536 {
         t_render
             .iter()
             .map(|&t| (f0_off_interp.sample(t), vuv_map(&t)))

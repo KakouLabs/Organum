@@ -35,7 +35,7 @@ fn midi_to_hz_fast(midi: f64) -> f64 {
 
 pub fn generate_pitch(
     req: &ResampleRequest,
-    vuv_render: &[bool],
+    vuv_render: &[u8],
     f0_off_render: &[f64],
     target_midi: f64,
     modulation: f64,
@@ -47,7 +47,7 @@ pub fn generate_pitch(
     let pitchbend_interp = utils::LinearInterpolator::new(&pitchbend_semitones);
 
     let f0_map = |i: usize| {
-        if vuv_render[i] {
+        if vuv_render[i] != 0 {
             let t = (i as f64) / fps;
             let pb_idx = t * pps;
             let pb = pitchbend_interp.sample(pb_idx);

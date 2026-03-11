@@ -11,7 +11,7 @@ pub struct AperiodicityStageParams {
 
 pub fn apply_aperiodicity_mods(
     ap_render: &mut [Vec<f64>],
-    vuv_render: &[bool],
+    vuv_render: &[u8],
     params: &AperiodicityStageParams,
 ) {
     const GPU_AP_MIN_SAFE_FRAMES: usize = 64;

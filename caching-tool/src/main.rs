@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing_subscriber::EnvFilter;
 use walkdir::WalkDir;
 
-use organum::resampler::{generate_and_cache_features, is_feature_cache_compatible};
+use organum::resampler::generate_and_cache_features;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -103,31 +103,31 @@ fn main() -> Result<()> {
     );
 
     let config = organum::config::load_config();
-    let files_to_process: Vec<PathBuf> = wav_files
-        .into_iter()
-        .filter(|wav| {
-            if args.force {
-                return true;
-            }
-            let sc_path = organum::resampler::to_feature_path(wav, &config.feature_extension);
-            if sc_path.exists() && is_feature_cache_compatible(&sc_path, &config) {
-                pb.inc(1);
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
-
-    if files_to_process.is_empty() {
-        pb.finish_with_message("All .wav files are already cached!");
-        return Ok(());
-    }
+    let files_to_process: Vec<PathBuf> = wav_files;
 
     let fail_count = AtomicUsize::new(0);
 
     files_to_process.par_iter().for_each(|wav_path| {
-        if let Err(e) = generate_and_cache_features(wav_path, &config) {
+        let result = if args.force {
+            let audio = organum::resampler::read_audio(wav_path, config.sample_rate);
+            audio.and_then(|audio| {
+                let features = organum::resampler::generate_features(
+                    &audio,
+                    config.sample_rate,
+                    config.frame_period,
+                )?;
+                organum::resampler::write_features(
+                    &organum::resampler::to_feature_path(wav_path, &config.feature_extension),
+                    &features,
+                    config.zstd_compression_level,
+                    &config,
+                )
+            })
+        } else {
+            generate_and_cache_features(wav_path, &config)
+        };
+
+        if let Err(e) = result {
             let file_name = wav_path.file_name().unwrap_or_default().to_string_lossy();
             tracing::warn!("Failed to cache {}: {}", file_name, e);
             fail_count.fetch_add(1, Ordering::Relaxed);

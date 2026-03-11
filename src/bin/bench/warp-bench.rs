@@ -68,8 +68,9 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
             let policy = DevicePolicy {
                 gpu_warp_enabled: true,
                 gpu_warp_min_frames: threshold,
+                gpu_ap_min_frames: threshold,
             };
-            policy.select(case.frames).as_warp_backend()
+            policy.select_warp(case.frames).as_warp_backend()
         }
     };
 

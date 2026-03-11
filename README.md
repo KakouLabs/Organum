@@ -82,7 +82,8 @@ zstd_compression_level: 3
 compressor_threshold: 0.85
 compressor_limit: 0.99
 gpu_warp_enabled: false
-gpu_warp_min_frames: 2048
+gpu_warp_min_frames: 18446744073709551615
+gpu_ap_min_frames: 18446744073709551615
 ```
 
 캐시는 포맷/스키마/엔진 버전 및 주요 설정(`sample_rate`, `frame_period`)이 현재 실행 값과 다르면 자동으로 무효화 후 재생성됩니다.

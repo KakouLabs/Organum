@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rayon::join;
 use std::path::Path;
 use std::time::Instant;
 
@@ -76,21 +77,32 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let timing = calculate_timing(req, &features.f0, features.base_f0, fps)?;
 
     // Resample feature curves onto the render timeline.
-    let mgc_render = interpolate_frames(&features.mgc, &timing.t_render);
-    let bap_render = interpolate_frames(&features.bap, &timing.t_render);
+    let (mgc_render, bap_render) = join(
+        || interpolate_frames(&features.mgc, &timing.t_render),
+        || interpolate_frames(&features.bap, &timing.t_render),
+    );
 
     let parsed_flags = parse_flags(&req.flags);
 
     // Decode WORLD envelopes for synthesis.
     let start_decode = Instant::now();
-    let mut sp_render = rsworld::decode_spectral_envelope(
-        &mgc_render,
-        timing.render_length as i32,
-        sample_rate as i32,
-        consts::FFT_SIZE,
+    let (mut sp_render, mut ap_render) = join(
+        || {
+            rsworld::decode_spectral_envelope(
+                &mgc_render,
+                timing.render_length as i32,
+                sample_rate as i32,
+                consts::FFT_SIZE,
+            )
+        },
+        || {
+            rsworld::decode_aperiodicity(
+                &bap_render,
+                timing.render_length as i32,
+                sample_rate as i32,
+            )
+        },
     );
-    let mut ap_render =
-        rsworld::decode_aperiodicity(&bap_render, timing.render_length as i32, sample_rate as i32);
     tracing::debug!("Decode stage completed in {:?}", start_decode.elapsed());
 
     // Resolve pitch/formant parameters from flags.
@@ -109,41 +121,50 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let target_midi = utils::note_to_midi(&req.tone) as f64 + (parsed_flags.t / 100.0);
     let target_base_f0 = utils::midi_to_hz(target_midi);
 
-    // Apply spectral warp and high-frequency tilt.
-    let device = DevicePolicy::from_config(config).select(timing.render_length);
-    apply_warp_and_tilt(
-        &mut sp_render,
-        sample_rate,
-        timing.render_length,
-        total_factor,
-        target_base_f0,
-        device,
-    );
-
-    // Apply voiced/unvoiced aperiodicity shaping.
-    apply_aperiodicity_mods(
-        &mut ap_render,
-        &timing.vuv_render,
-        &AperiodicityStageParams {
-            scaled_cons_sec: timing.scaled_cons_sec,
-            fps,
-            h_flag: parsed_flags.h,
-            c_flag: parsed_flags.c,
-            b_flag: parsed_flags.b,
-            device,
-        },
-    );
-
-    // Generate render-time F0 trajectory.
+    let device_policy = DevicePolicy::from_config(config);
+    let warp_device = device_policy.select_warp(timing.render_length);
+    let ap_device = device_policy.select_aperiodicity(timing.render_length);
     let modulation = parsed_flags.m / 100.0;
-    let f0_render = generate_pitch(
-        req,
-        &timing.vuv_render,
-        &timing.f0_off_render,
-        target_midi,
-        modulation,
-        fps,
-        timing.render_length,
+    let (((), ()), f0_render) = join(
+        || {
+            join(
+                || {
+                    apply_warp_and_tilt(
+                        &mut sp_render,
+                        sample_rate,
+                        timing.render_length,
+                        total_factor,
+                        target_base_f0,
+                        warp_device,
+                    )
+                },
+                || {
+                    apply_aperiodicity_mods(
+                        &mut ap_render,
+                        &timing.vuv_render,
+                        &AperiodicityStageParams {
+                            scaled_cons_sec: timing.scaled_cons_sec,
+                            fps,
+                            h_flag: parsed_flags.h,
+                            c_flag: parsed_flags.c,
+                            b_flag: parsed_flags.b,
+                            device: ap_device,
+                        },
+                    )
+                },
+            )
+        },
+        || {
+            generate_pitch(
+                req,
+                &timing.vuv_render,
+                &timing.f0_off_render,
+                target_midi,
+                modulation,
+                fps,
+                timing.render_length,
+            )
+        },
     );
 
     let volume = parsed_flags.a.clamp(0.0, 200.0) / 100.0;

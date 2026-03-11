@@ -28,17 +28,22 @@ pub fn resample_audio(audio: &[f64], in_fs: u32, out_fs: u32) -> Result<Vec<f64>
     };
 
     let mut resampler = SincFixedIn::<f64>::new(ratio, 2.0, params, 1024, 1)?;
+    let mut input = resampler.input_buffer_allocate(true);
+    let mut output = resampler.output_buffer_allocate(true);
+    let mut offset = 0usize;
 
-    let mut padded = vec![0.0; 1024];
-
-    for chunk in audio.chunks(1024) {
-        let len = chunk.len();
-        padded[..len].copy_from_slice(chunk);
-        if len < 1024 {
-            padded[len..].fill(0.0);
+    while offset < audio.len() {
+        let frames_in = resampler.input_frames_next();
+        let end = (offset + frames_in).min(audio.len());
+        let chunk = &audio[offset..end];
+        input[0][..chunk.len()].copy_from_slice(chunk);
+        if chunk.len() < frames_in {
+            input[0][chunk.len()..frames_in].fill(0.0);
         }
-        let res = resampler.process(&[&padded], None)?;
-        resampled.extend_from_slice(&res[0]);
+
+        let (_, out_len) = resampler.process_into_buffer(&input, &mut output, None)?;
+        resampled.extend_from_slice(&output[0][..out_len]);
+        offset = end;
     }
 
     Ok(resampled)
@@ -59,24 +64,33 @@ pub fn write_audio(
     let file = std::fs::File::create(path)?;
     let buf_writer = std::io::BufWriter::with_capacity(256 * 1024, file);
     let mut writer = hound::WavWriter::new(buf_writer, spec)?;
+    const WRITE_CHUNK_SAMPLES: usize = 8192;
     if output_dither {
         let mut error_accum = 0.0_f64;
         let mut prng = crate::utils::XorShift32::new(0x12345678);
-        for &x in audio {
-            let scaled = x * 32767.0 + error_accum;
+        for chunk in audio.chunks(WRITE_CHUNK_SAMPLES) {
+            let mut sample_writer = writer.get_i16_writer(chunk.len() as u32);
+            for &x in chunk {
+                let scaled = x * 32767.0 + error_accum;
 
-            let r1 = prng.next_f32() as f64;
-            let r2 = prng.next_f32() as f64;
-            let dither = r1 + r2;
+                let r1 = prng.next_f32() as f64;
+                let r2 = prng.next_f32() as f64;
+                let dither = r1 + r2;
 
-            let q = (scaled + dither).round().clamp(-32768.0, 32767.0) as i16;
-            error_accum = scaled - q as f64;
-            writer.write_sample(q)?;
+                let q = (scaled + dither).round().clamp(-32768.0, 32767.0) as i16;
+                error_accum = scaled - q as f64;
+                sample_writer.write_sample(q);
+            }
+            sample_writer.flush()?;
         }
     } else {
-        for &x in audio {
-            let q = (x * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
-            writer.write_sample(q)?;
+        for chunk in audio.chunks(WRITE_CHUNK_SAMPLES) {
+            let mut sample_writer = writer.get_i16_writer(chunk.len() as u32);
+            for &x in chunk {
+                let q = (x * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
+                sample_writer.write_sample(q);
+            }
+            sample_writer.flush()?;
         }
     }
     writer.finalize()?;

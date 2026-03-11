@@ -28,8 +28,8 @@ fn make_ap(frames: usize, bins: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
-fn make_vuv(frames: usize) -> Vec<bool> {
-    (0..frames).map(|i| (i % 7) < 5).collect()
+fn make_vuv(frames: usize) -> Vec<u8> {
+    (0..frames).map(|i| u8::from((i % 7) < 5)).collect()
 }
 
 struct BenchResult {
@@ -71,8 +71,9 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
             let policy = DevicePolicy {
                 gpu_warp_enabled: true,
                 gpu_warp_min_frames: threshold,
+                gpu_ap_min_frames: threshold,
             };
-            policy.select(case.frames).as_warp_backend()
+            policy.select_aperiodicity(case.frames).as_warp_backend()
         }
     };
 

@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use std::cell::RefCell;
 #[cfg(feature = "gpu-warp")]
 use std::collections::VecDeque;
 #[cfg(not(feature = "gpu-warp"))]
@@ -369,10 +370,26 @@ pub fn gpu_warp_stats() -> GpuWarpStats {
     }
 }
 
+#[derive(Clone)]
 pub struct WarpLut {
     pub idx_floor: Vec<usize>,
     pub frac: Vec<f64>,
-    pub clamped: Vec<bool>,
+    pub clamped: Vec<u8>,
+}
+
+thread_local! {
+    static WARP_APPLY_SCRATCH: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct WarpLutKey {
+    len: usize,
+    sample_rate_hz: u32,
+    factor_milli: i32,
+}
+
+thread_local! {
+    static WARP_LUT_CACHE: RefCell<Vec<(WarpLutKey, WarpLut)>> = const { RefCell::new(Vec::new()) };
 }
 
 impl WarpLut {
@@ -394,12 +411,12 @@ impl WarpLut {
             if src_idx >= last {
                 idx_floor.push(len - 1);
                 frac.push(0.0);
-                clamped.push(true);
+                clamped.push(1);
             } else {
                 let fl = src_idx as usize;
                 idx_floor.push(fl);
                 frac.push(src_idx - fl as f64);
-                clamped.push(false);
+                clamped.push(0);
             }
         }
 
@@ -410,10 +427,37 @@ impl WarpLut {
         }
     }
 
+    pub fn cached(len: usize, fs: f64, factor: f64) -> Self {
+        let key = WarpLutKey {
+            len,
+            sample_rate_hz: fs.round() as u32,
+            factor_milli: (factor * 1000.0).round() as i32,
+        };
+
+        WARP_LUT_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if let Some(index) = cache.iter().position(|(cached_key, _)| *cached_key == key) {
+                let (_, lut) = cache.swap_remove(index);
+                let cloned = lut.clone();
+                cache.push((key, lut));
+                return cloned;
+            }
+
+            let lut = Self::new(len, fs, factor);
+            if cache.len() >= 8 {
+                cache.remove(0);
+            }
+            cache.push((key, lut.clone()));
+            lut
+        })
+    }
+
     #[inline]
     pub fn apply(&self, in_out: &mut Vec<f64>) {
-        let mut scratch = Vec::with_capacity(in_out.len());
-        self.apply_with_scratch(in_out.as_mut_slice(), &mut scratch);
+        WARP_APPLY_SCRATCH.with(|scratch| {
+            let mut scratch = scratch.borrow_mut();
+            self.apply_with_scratch(in_out.as_mut_slice(), &mut scratch);
+        });
     }
 
     #[inline]
@@ -424,7 +468,7 @@ impl WarpLut {
         let last_val = *scratch.last().unwrap_or(&0.0);
 
         for (i, v) in in_out.iter_mut().enumerate() {
-            if self.clamped[i] {
+            if self.clamped[i] != 0 {
                 *v = last_val;
             } else {
                 let fl = self.idx_floor[i];
@@ -457,7 +501,7 @@ pub fn warp_spectrum(sp: &mut Vec<f64>, fs: f64, factor: f64) {
     if (factor - 1.0).abs() < 0.001 {
         return;
     }
-    let lut = WarpLut::new(sp.len(), fs, factor);
+    let lut = WarpLut::cached(sp.len(), fs, factor);
     lut.apply(sp);
 }
 
@@ -499,7 +543,7 @@ pub fn try_apply_warp_gpu_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Resul
 
 pub fn apply_aperiodicity_cpu_batch(
     ap_render: &mut [Vec<f64>],
-    vuv_render: &[bool],
+    vuv_render: &[u8],
     onset_fadein_frames: usize,
     h_factor: f64,
     c_factor: f64,
@@ -543,7 +587,7 @@ pub fn apply_aperiodicity_cpu_batch(
     if ap_render.len() < PAR_THRESHOLD {
         let mut scratch_f32 = Vec::new();
         for (i, frame) in ap_render.iter_mut().enumerate() {
-            let is_voiced = vuv_render.get(i).copied().unwrap_or(false);
+            let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
             let params = params_for_frame(
                 i,
                 onset_fadein_frames,
@@ -568,7 +612,7 @@ pub fn apply_aperiodicity_cpu_batch(
         ap_render.par_iter_mut().enumerate().for_each_init(
             Vec::new,
             |scratch_f32: &mut Vec<f32>, (i, frame)| {
-                let is_voiced = vuv_render.get(i).copied().unwrap_or(false);
+                let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
                 let params = params_for_frame(
                     i,
                     onset_fadein_frames,
@@ -592,7 +636,7 @@ pub fn apply_aperiodicity_cpu_batch(
         );
     } else {
         ap_render.par_iter_mut().enumerate().for_each(|(i, frame)| {
-            let is_voiced = vuv_render.get(i).copied().unwrap_or(false);
+            let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
             let params = params_for_frame(
                 i,
                 onset_fadein_frames,
@@ -609,7 +653,7 @@ pub fn apply_aperiodicity_cpu_batch(
 
 pub fn try_apply_aperiodicity_gpu_batch(
     ap_render: &mut [Vec<f64>],
-    vuv_render: &[bool],
+    vuv_render: &[u8],
     onset_fadein_frames: usize,
     h_factor: f64,
     c_factor: f64,
@@ -1577,7 +1621,7 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
 #[cfg(feature = "gpu-warp")]
 async fn run_wgpu_aperiodicity_batch(
     ap_render: &mut [Vec<f64>],
-    vuv_render: &[bool],
+    vuv_render: &[u8],
     onset_fadein_frames: usize,
     h_factor: f32,
     c_factor: f32,
@@ -1679,7 +1723,7 @@ async fn run_wgpu_aperiodicity_batch(
         }
 
         for (i, &is_voiced) in vuv_render[chunk_start..chunk_end].iter().enumerate() {
-            bufs.host_vuv[i] = if is_voiced { 1 } else { 0 };
+            bufs.host_vuv[i] = is_voiced as u32;
         }
 
         let input_bytes = bytemuck::cast_slice(&bufs.host_input_data);

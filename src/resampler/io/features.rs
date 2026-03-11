@@ -10,9 +10,8 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 const CACHE_MAGIC: [u8; 4] = *b"ORGN";
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 const CACHE_SCHEMA_VERSION: u32 = 1;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CacheHeader {
     format_version: u32,
@@ -48,17 +47,17 @@ enum Strategy {
 /// Returns true when cache file has the current magic/version header.
 pub fn is_feature_cache_compatible(path: &Path, config: &crate::config::OrganumConfig) -> bool {
     let expected = CacheHeader::from_config(config);
-    match read_cache_header(path) {
+    match File::open(path)
+        .and_then(|mut file| read_cache_header_from(&mut file).map_err(std::io::Error::other))
+    {
         Ok(header) => header == expected,
         Err(_) => false,
     }
 }
 
-fn read_cache_header(path: &Path) -> Result<CacheHeader> {
-    let mut f = File::open(path)?;
-
+fn read_cache_header_from<R: Read>(reader: &mut R) -> Result<CacheHeader> {
     let mut magic = [0u8; 4];
-    if f.read_exact(&mut magic).is_err() || magic != CACHE_MAGIC {
+    if reader.read_exact(&mut magic).is_err() || magic != CACHE_MAGIC {
         anyhow::bail!(
             "Invalid cache magic (expected {:?}, got {:?})",
             CACHE_MAGIC,
@@ -67,25 +66,25 @@ fn read_cache_header(path: &Path) -> Result<CacheHeader> {
     }
 
     let mut version_bytes = [0u8; 4];
-    if f.read_exact(&mut version_bytes).is_err() {
+    if reader.read_exact(&mut version_bytes).is_err() {
         anyhow::bail!("Failed to read cache format version");
     }
     let format_version = u32::from_le_bytes(version_bytes);
 
     let mut schema_bytes = [0u8; 4];
-    if f.read_exact(&mut schema_bytes).is_err() {
+    if reader.read_exact(&mut schema_bytes).is_err() {
         anyhow::bail!("Failed to read cache schema version");
     }
     let schema_version = u32::from_le_bytes(schema_bytes);
 
     let mut sample_rate_bytes = [0u8; 4];
-    if f.read_exact(&mut sample_rate_bytes).is_err() {
+    if reader.read_exact(&mut sample_rate_bytes).is_err() {
         anyhow::bail!("Failed to read cache sample rate");
     }
     let sample_rate = u32::from_le_bytes(sample_rate_bytes);
 
     let mut frame_period_bytes = [0u8; 4];
-    if f.read_exact(&mut frame_period_bytes).is_err() {
+    if reader.read_exact(&mut frame_period_bytes).is_err() {
         anyhow::bail!("Failed to read cache frame period metadata");
     }
     let frame_period_micros = u32::from_le_bytes(frame_period_bytes);
@@ -96,6 +95,38 @@ fn read_cache_header(path: &Path) -> Result<CacheHeader> {
         sample_rate,
         frame_period_micros,
     })
+}
+
+fn validate_cache_header(header: CacheHeader, expected: CacheHeader) -> Result<()> {
+    if header.format_version != expected.format_version {
+        anyhow::bail!(
+            "Cache format version mismatch (expected {}, got {})",
+            expected.format_version,
+            header.format_version
+        );
+    }
+    if header.schema_version != expected.schema_version {
+        anyhow::bail!(
+            "Cache schema version mismatch (expected {}, got {})",
+            expected.schema_version,
+            header.schema_version
+        );
+    }
+    if header.sample_rate != expected.sample_rate {
+        anyhow::bail!(
+            "Cache sample_rate mismatch (expected {}, got {})",
+            expected.sample_rate,
+            header.sample_rate
+        );
+    }
+    if header.frame_period_micros != expected.frame_period_micros {
+        anyhow::bail!(
+            "Cache frame_period mismatch (expected {}us, got {}us)",
+            expected.frame_period_micros,
+            header.frame_period_micros
+        );
+    }
+    Ok(())
 }
 
 pub fn generate_features(
@@ -124,7 +155,7 @@ pub fn generate_features(
         threshold: consts::D4C_THRESHOLD,
     };
 
-    let audio_vec: Vec<f64> = audio.to_vec();
+    let audio_vec = audio.to_vec();
 
     let (t, f0_rough) = dio(&audio_vec, sample_rate as i32, &dio_opts);
     let f0 = stonemask(&audio_vec, sample_rate as i32, &t, &f0_rough);
@@ -167,40 +198,9 @@ pub fn generate_features(
 
 pub fn read_features(path: &Path, config: &crate::config::OrganumConfig) -> Result<WorldFeatures> {
     let expected = CacheHeader::from_config(config);
-    let header = read_cache_header(path)?;
-    if header.format_version != expected.format_version {
-        anyhow::bail!(
-            "Cache format version mismatch (expected {}, got {})",
-            expected.format_version,
-            header.format_version
-        );
-    }
-    if header.schema_version != expected.schema_version {
-        anyhow::bail!(
-            "Cache schema version mismatch (expected {}, got {})",
-            expected.schema_version,
-            header.schema_version
-        );
-    }
-    if header.sample_rate != expected.sample_rate {
-        anyhow::bail!(
-            "Cache sample_rate mismatch (expected {}, got {})",
-            expected.sample_rate,
-            header.sample_rate
-        );
-    }
-    if header.frame_period_micros != expected.frame_period_micros {
-        anyhow::bail!(
-            "Cache frame_period mismatch (expected {}us, got {}us)",
-            expected.frame_period_micros,
-            header.frame_period_micros
-        );
-    }
-
     let mut f = File::open(path)?;
-
-    let mut header_prefix = [0u8; 20];
-    f.read_exact(&mut header_prefix)?;
+    let header = read_cache_header_from(&mut f)?;
+    validate_cache_header(header, expected)?;
 
     let mut decoder = zstd::stream::Decoder::new(f)?;
     let cached: CachePayload = bincode::deserialize_from(&mut decoder)?;
@@ -231,22 +231,21 @@ pub fn write_features(
     f.write_all(&header.sample_rate.to_le_bytes())?;
     f.write_all(&header.frame_period_micros.to_le_bytes())?;
 
-    let q_payload = CachePayload {
-        engine_version: env!("CARGO_PKG_VERSION").to_string(),
-        payload: FeatureCacheV4::Quantized(FeatureCacheV4Quantized::from(features)),
-    };
-    let d_payload = CachePayload {
-        engine_version: env!("CARGO_PKG_VERSION").to_string(),
-        payload: FeatureCacheV4::DeltaQuantized(FeatureCacheV4Delta::from(features)),
-    };
-
     match estimate_best_strategy(features) {
         Strategy::Quantized => {
+            let q_payload = CachePayload {
+                engine_version: env!("CARGO_PKG_VERSION").to_string(),
+                payload: FeatureCacheV4::Quantized(FeatureCacheV4Quantized::from(features)),
+            };
             let q_bytes = compress_payload(&q_payload, compression_level)?;
             f.write_all(&q_bytes)?;
             tracing::debug!("Cache strategy=quantized(heuristic) q={}B", q_bytes.len());
         }
         Strategy::DeltaQuantized => {
+            let d_payload = CachePayload {
+                engine_version: env!("CARGO_PKG_VERSION").to_string(),
+                payload: FeatureCacheV4::DeltaQuantized(FeatureCacheV4Delta::from(features)),
+            };
             let d_bytes = compress_payload(&d_payload, compression_level)?;
             f.write_all(&d_bytes)?;
             tracing::debug!(
@@ -256,6 +255,14 @@ pub fn write_features(
         }
         Strategy::Unknown => {
             // Ambiguous signal statistics: compare both and keep the smaller payload.
+            let q_payload = CachePayload {
+                engine_version: env!("CARGO_PKG_VERSION").to_string(),
+                payload: FeatureCacheV4::Quantized(FeatureCacheV4Quantized::from(features)),
+            };
+            let d_payload = CachePayload {
+                engine_version: env!("CARGO_PKG_VERSION").to_string(),
+                payload: FeatureCacheV4::DeltaQuantized(FeatureCacheV4Delta::from(features)),
+            };
             let q_bytes = compress_payload(&q_payload, compression_level)?;
             let d_bytes = compress_payload(&d_payload, compression_level)?;
             if q_bytes.len() <= d_bytes.len() {

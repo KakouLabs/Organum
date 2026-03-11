@@ -29,6 +29,9 @@ pub struct OrganumConfig {
     #[serde(default = "default_gpu_warp_min_frames")]
     pub gpu_warp_min_frames: usize,
 
+    #[serde(default = "default_gpu_ap_min_frames")]
+    pub gpu_ap_min_frames: usize,
+
     #[serde(default = "default_output_dither")]
     pub output_dither: bool,
 }
@@ -55,7 +58,10 @@ fn default_gpu_warp_enabled() -> bool {
     false
 }
 fn default_gpu_warp_min_frames() -> usize {
-    2048
+    usize::MAX
+}
+fn default_gpu_ap_min_frames() -> usize {
+    usize::MAX
 }
 fn default_output_dither() -> bool {
     true
@@ -72,6 +78,7 @@ impl Default for OrganumConfig {
             compressor_limit: default_compressor_limit(),
             gpu_warp_enabled: default_gpu_warp_enabled(),
             gpu_warp_min_frames: default_gpu_warp_min_frames(),
+            gpu_ap_min_frames: default_gpu_ap_min_frames(),
             output_dither: default_output_dither(),
         }
     }
@@ -99,8 +106,10 @@ pub fn load_config() -> OrganumConfig {
              compressor_limit: {:.2}\n\n\
              # Enable experimental GPU route for warp_spectrum (default: false)\n\
              gpu_warp_enabled: {}\n\n\
-              # Minimum render frames before trying GPU warp route (default: 2048)\n\
-             gpu_warp_min_frames: {}\n\
+              # Minimum render frames before trying GPU warp route (default: disabled/CPU-only)\n\
+              gpu_warp_min_frames: {}\n\n\
+              # Minimum render frames before trying GPU aperiodicity route (default: disabled/CPU-only)\n\
+              gpu_ap_min_frames: {}\n\
              # Enable output dithering/noise-shaping on WAV write (default: true)\n\
              output_dither: {}\n",
             default_config.feature_extension,
@@ -111,6 +120,7 @@ pub fn load_config() -> OrganumConfig {
             default_config.compressor_limit,
             default_config.gpu_warp_enabled,
             default_config.gpu_warp_min_frames,
+            default_config.gpu_ap_min_frames,
             default_config.output_dither,
         );
         let _ = fs::write(&config_path, yaml_content);

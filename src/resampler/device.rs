@@ -23,6 +23,7 @@ impl Device {
 pub struct DevicePolicy {
     pub gpu_warp_enabled: bool,
     pub gpu_warp_min_frames: usize,
+    pub gpu_ap_min_frames: usize,
 }
 
 static GPU_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
@@ -42,11 +43,27 @@ impl DevicePolicy {
         Self {
             gpu_warp_enabled: config.gpu_warp_enabled,
             gpu_warp_min_frames: config.gpu_warp_min_frames,
+            gpu_ap_min_frames: config.gpu_ap_min_frames,
         }
     }
 
     #[inline]
     pub fn select(self, render_length: usize) -> Device {
+        self.select_warp(render_length)
+    }
+
+    #[inline]
+    pub fn select_warp(self, render_length: usize) -> Device {
+        self.select_with_threshold(render_length, self.gpu_warp_min_frames)
+    }
+
+    #[inline]
+    pub fn select_aperiodicity(self, render_length: usize) -> Device {
+        self.select_with_threshold(render_length, self.gpu_ap_min_frames)
+    }
+
+    #[inline]
+    fn select_with_threshold(self, render_length: usize, min_frames: usize) -> Device {
         if !self.gpu_warp_enabled {
             Device::Cpu
         } else if !cfg!(feature = "gpu-warp") {
@@ -58,7 +75,7 @@ impl DevicePolicy {
             Device::Cpu
         } else if GPU_RUNTIME_DISABLED.load(Ordering::Relaxed) {
             Device::Cpu
-        } else if render_length >= self.gpu_warp_min_frames {
+        } else if render_length >= min_frames {
             Device::Gpu
         } else {
             Device::Cpu

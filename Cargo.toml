@@ -19,7 +19,7 @@ bytemuck = { version = "1.16", features = ["derive"] }
 
 [package]
 name = "organum"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 
 [features]
@@ -62,7 +62,7 @@ name = "ap-bench"
 path = "src/bin/bench/ap-bench.rs"
 
 [profile.release]
-opt-level = "z"
+opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"

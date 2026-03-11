@@ -1,8 +1,8 @@
 use super::features::WorldFeatures;
 use serde::{Deserialize, Serialize};
 
-/// Cache payload for feature file version 4.
-/// v4 uses strategy enum and lets encoder pick smaller compressed payload.
+/// Cache payload for feature cache format version 3.
+/// This payload uses a strategy enum and lets the encoder pick smaller compressed payloads.
 #[derive(Serialize, Deserialize)]
 pub enum FeatureCacheV4 {
     Quantized(FeatureCacheV4Quantized),
@@ -40,10 +40,10 @@ pub struct FeatureCacheV4Delta {
 fn flatten_2d(data: &[Vec<f64>]) -> (usize, usize, Vec<f32>) {
     let frames = data.len();
     let dims = data.first().map_or(0, Vec::len);
-    let flat = data
-        .iter()
-        .flat_map(|row| row.iter().map(|&v| v as f32))
-        .collect();
+    let mut flat = Vec::with_capacity(frames.saturating_mul(dims));
+    for row in data {
+        flat.extend(row.iter().map(|&v| v as f32));
+    }
     (frames, dims, flat)
 }
 
@@ -56,11 +56,14 @@ fn reshape_2d(flat: Vec<f32>, frames: usize, dims: usize) -> anyhow::Result<Vec<
             dims
         );
     }
-    Ok(flat
-        .chunks(dims.max(1))
-        .take(frames)
-        .map(|row| row.iter().map(|&v| v as f64).collect())
-        .collect())
+    let dims = dims.max(1);
+    let mut rows = Vec::with_capacity(frames);
+    for row in flat.chunks(dims).take(frames) {
+        let mut out_row = Vec::with_capacity(row.len());
+        out_row.extend(row.iter().map(|&v| v as f64));
+        rows.push(out_row);
+    }
+    Ok(rows)
 }
 
 fn quantize_i16(data: &[f32]) -> (f32, Vec<i16>) {
@@ -91,14 +94,14 @@ fn delta_encode(data: &[f32]) -> Vec<f32> {
     out
 }
 
-fn delta_decode(deltas: &[f32]) -> Vec<f32> {
-    let mut out = Vec::with_capacity(deltas.len());
+fn delta_decode_into(deltas: &[f32], out: &mut Vec<f32>) {
+    out.clear();
+    out.reserve(deltas.len());
     let mut acc = 0.0_f32;
     for &d in deltas {
         acc += d;
         out.push(acc);
     }
-    out
 }
 
 impl From<&WorldFeatures> for FeatureCacheV4Quantized {
@@ -134,7 +137,7 @@ impl TryFrom<FeatureCacheV4Quantized> for WorldFeatures {
 
         if cache.mgc_data.len() != mgc_frames.saturating_mul(mgc_dims) {
             anyhow::bail!(
-                "Invalid v4 quantized cache: mgc_data length {} does not match {}x{}",
+                "Invalid quantized cache: mgc_data length {} does not match {}x{}",
                 cache.mgc_data.len(),
                 mgc_frames,
                 mgc_dims
@@ -142,7 +145,7 @@ impl TryFrom<FeatureCacheV4Quantized> for WorldFeatures {
         }
         if cache.bap_data.len() != bap_frames.saturating_mul(bap_dims) {
             anyhow::bail!(
-                "Invalid v4 quantized cache: bap_data length {} does not match {}x{}",
+                "Invalid quantized cache: bap_data length {} does not match {}x{}",
                 cache.bap_data.len(),
                 bap_frames,
                 bap_dims
@@ -205,7 +208,7 @@ impl TryFrom<FeatureCacheV4Delta> for WorldFeatures {
 
         if cache.mgc_delta_data.len() != mgc_frames.saturating_mul(mgc_dims) {
             anyhow::bail!(
-                "Invalid v4 delta cache: mgc_delta_data length {} does not match {}x{}",
+                "Invalid delta cache: mgc_delta_data length {} does not match {}x{}",
                 cache.mgc_delta_data.len(),
                 mgc_frames,
                 mgc_dims
@@ -213,7 +216,7 @@ impl TryFrom<FeatureCacheV4Delta> for WorldFeatures {
         }
         if cache.bap_delta_data.len() != bap_frames.saturating_mul(bap_dims) {
             anyhow::bail!(
-                "Invalid v4 delta cache: bap_delta_data length {} does not match {}x{}",
+                "Invalid delta cache: bap_delta_data length {} does not match {}x{}",
                 cache.bap_delta_data.len(),
                 bap_frames,
                 bap_dims
@@ -222,8 +225,12 @@ impl TryFrom<FeatureCacheV4Delta> for WorldFeatures {
 
         let mgc_d = dequantize_i16(cache.mgc_delta_scale, &cache.mgc_delta_data);
         let bap_d = dequantize_i16(cache.bap_delta_scale, &cache.bap_delta_data);
-        let mgc = reshape_2d(delta_decode(&mgc_d), mgc_frames, mgc_dims)?;
-        let bap = reshape_2d(delta_decode(&bap_d), bap_frames, bap_dims)?;
+        let mut mgc_flat = Vec::with_capacity(mgc_d.len());
+        let mut bap_flat = Vec::with_capacity(bap_d.len());
+        delta_decode_into(&mgc_d, &mut mgc_flat);
+        delta_decode_into(&bap_d, &mut bap_flat);
+        let mgc = reshape_2d(mgc_flat, mgc_frames, mgc_dims)?;
+        let bap = reshape_2d(bap_flat, bap_frames, bap_dims)?;
 
         Ok(Self {
             base_f0: cache.base_f0 as f64,

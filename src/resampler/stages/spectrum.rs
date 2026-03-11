@@ -26,7 +26,7 @@ pub fn apply_warp_and_tilt(
     let warp_lut = if (total_factor - 1.0).abs() > 0.001 {
         let sp_len = sp_render.first().map(|f| f.len()).unwrap_or(0);
         if sp_len > 0 {
-            Some(synthesis::WarpLut::new(
+            Some(synthesis::WarpLut::cached(
                 sp_len,
                 sample_rate as f64,
                 total_factor,

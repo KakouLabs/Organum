@@ -93,12 +93,16 @@ pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u
     let estimated_frames = total_samples / channels.max(1);
 
     let mut mono: Vec<f64> = Vec::with_capacity(estimated_frames);
+    let mut corrupt_samples = 0usize;
+    let mut first_corrupt_index = None;
 
     if channels <= 1 {
         // 모노: 직접 정규화하면서 수집
         for (i, s) in reader.samples::<i32>().enumerate() {
             let sample = s.unwrap_or_else(|e| {
-                tracing::warn!("Corrupted sample at index {} in {:?}: {}", i, path, e);
+                corrupt_samples += 1;
+                first_corrupt_index.get_or_insert(i);
+                tracing::debug!("Corrupted sample at index {} in {:?}: {}", i, path, e);
                 0
             });
             mono.push(sample as f64 / max_val);
@@ -110,7 +114,9 @@ pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u
 
         for (i, s) in reader.samples::<i32>().enumerate() {
             let sample = s.unwrap_or_else(|e| {
-                tracing::warn!("Corrupted sample at index {} in {:?}: {}", i, path, e);
+                corrupt_samples += 1;
+                first_corrupt_index.get_or_insert(i);
+                tracing::debug!("Corrupted sample at index {} in {:?}: {}", i, path, e);
                 0
             });
             ch_sum += sample as f64;
@@ -122,6 +128,15 @@ pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u
                 ch_idx = 0;
             }
         }
+    }
+
+    if corrupt_samples > 0 {
+        tracing::warn!(
+            "Recovered {} corrupted samples while decoding {:?} (first index {:?})",
+            corrupt_samples,
+            path,
+            first_corrupt_index
+        );
     }
 
     Ok((mono, spec.sample_rate))
