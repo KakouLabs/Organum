@@ -79,7 +79,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           cargo build --release ${{ matrix.cargo_features }} -p organum --bin organum-resampler
-          cargo build --release ${{ matrix.cargo_features }} -p caching-tool --bin caching-tool
+          cargo build --release -p caching-tool --bin caching-tool
 
 
 
