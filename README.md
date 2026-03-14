@@ -19,6 +19,9 @@ Organum은 UTAU 및 OpenUtau용 리샘플러 엔진입니다. WORLD vocoder 기�
 - `organum.yaml`을 통한 설정 커스터마이징
 - Zstd 압축 캐시 (`.ogc`)로 반복 분석 생략
 
+## 🎤 Voicebank Release
+**코쿠노 테츠(虚空の 鉄, Tetsu Kokuno)** 보이스뱅크가 출시되었습니다! 다운로드는 [https://utau.sapo.dev](https://utau.sapo.dev)에서 가능합니다.
+
 ## GPU Route Notice
 
 - `gpu-warp` 경로는 **실험적 기능**입니다.

@@ -19,6 +19,9 @@ Organum is a resampler engine for UTAU and OpenUtau. It implements a WORLD vocod
 - Configuration customization via `organum.yaml`
 - Skip repeated analysis with Zstd compressed cache (`.ogc`)
 
+## 🎤 Voicebank Release
+The **Tetsu Kokuno(코쿠노 테츠, 虚空の 鉄)** voice bank has been released! You can download it at [https://utau.sapo.dev](https://utau.sapo.dev).
+
 ## GPU Route Notice
 
 - The `gpu-warp` route is an **experimental feature**.

@@ -19,6 +19,9 @@ OrganumはUTAUおよびOpenUtau用のリサンプラーエンジンです。WORL
 - `organum.yaml`による設定のカスタマイズ
 - Zstd圧縮キャッシュ(`.ogc`)による重複分析の省略
 
+## 🎤 Voicebank Release
+**虚空の 鉄(코쿠노 테츠, Tetsu Kokuno)** ボイスバンクが発売されました！ダウンロードは[https://utau.sapo.dev](https://utau.sapo.dev)から入手できます。
+
 ## GPUルートに関する注意
 
 - `gpu-warp`パスは**実験的機能**です。
