@@ -129,57 +129,63 @@ pub fn concatenate(req: &WavtoolRequest) -> Result<()> {
         let step_ms = 1000.0 / sample_rate as f32;
         let mut time_ms = 0.0;
 
-        for i in 0..mix_len {
-            let dest_idx = dest_start + i;
+        let last_sample = *src_samples.last().unwrap_or(&0.0);
 
-            let src_idx = skip_samples + (i as f32 * sr_ratio);
-            let val = if src_idx >= 0.0 && src_idx < src_len_f32 - 1.0 {
-                cubic_interpolate(&src_samples, src_idx) * volume
-            } else if src_idx >= src_len_f32 - 1.0 {
-                let last_val = *src_samples.last().unwrap_or(&0.0);
-                let fade_progress = (src_idx - (src_len_f32 - 1.0)) / 100.0;
-                last_val * (1.0 - fade_progress.min(1.0)) * volume
-            } else {
-                0.0
-            };
+        if let Some(env) = env_ref.filter(|env| !env.is_empty()) {
+            for i in 0..mix_len {
+                let dest_idx = dest_start + i;
+                let src_idx = skip_samples + (i as f32 * sr_ratio);
+                let val = if src_idx >= 0.0 && src_idx < src_len_f32 - 1.0 {
+                    cubic_interpolate(&src_samples, src_idx) * volume
+                } else if src_idx >= src_len_f32 - 1.0 {
+                    let fade_progress = (src_idx - (src_len_f32 - 1.0)) / 100.0;
+                    last_sample * (1.0 - fade_progress.min(1.0)) * volume
+                } else {
+                    0.0
+                };
 
-            let mut gain = 1.0;
-
-            if let Some(env) = env_ref {
-                if env_len > 0 {
-                    if time_ms <= env[0].time_ms {
-                        gain *= env[0].volume;
-                    } else if time_ms >= env[env_len - 1].time_ms {
-                        gain *= env[env_len - 1].volume;
-                    } else {
-                        while cur_env_idx < env_len - 2 && time_ms > env[cur_env_idx + 1].time_ms {
-                            cur_env_idx += 1;
-                        }
-                        let e1 = &env[cur_env_idx];
-                        let e2 = &env[cur_env_idx + 1];
-
-                        let dt = (e2.time_ms - e1.time_ms).max(0.0001);
-                        let t = (time_ms - e1.time_ms) / dt;
-                        gain *= e1.volume * (1.0 - t) + e2.volume * t;
+                let gain = if time_ms <= env[0].time_ms {
+                    env[0].volume
+                } else if time_ms >= env[env_len - 1].time_ms {
+                    env[env_len - 1].volume
+                } else {
+                    while cur_env_idx < env_len - 2 && time_ms > env[cur_env_idx + 1].time_ms {
+                        cur_env_idx += 1;
                     }
-                }
-            } else {
-                if fade_in_samples > 0 && i < fade_in_samples {
-                    let t = i as f32 / fade_in_samples as f32;
-                    gain *= t;
-                }
-                if fade_out_samples > 0
-                    && mix_len > fade_out_samples
-                    && i >= mix_len - fade_out_samples
-                {
-                    let remaining = mix_len - i;
-                    let t = remaining as f32 / fade_out_samples as f32;
-                    gain *= t;
-                }
-            }
+                    let e1 = &env[cur_env_idx];
+                    let e2 = &env[cur_env_idx + 1];
+                    let dt = (e2.time_ms - e1.time_ms).max(0.0001);
+                    let t = (time_ms - e1.time_ms) / dt;
+                    e1.volume * (1.0 - t) + e2.volume * t
+                };
 
-            canvas[dest_idx] += val * gain;
-            time_ms += step_ms;
+                canvas[dest_idx] += val * gain;
+                time_ms += step_ms;
+            }
+        } else {
+            let fade_out_start = mix_len.saturating_sub(fade_out_samples);
+            for i in 0..mix_len {
+                let dest_idx = dest_start + i;
+                let src_idx = skip_samples + (i as f32 * sr_ratio);
+                let val = if src_idx >= 0.0 && src_idx < src_len_f32 - 1.0 {
+                    cubic_interpolate(&src_samples, src_idx) * volume
+                } else if src_idx >= src_len_f32 - 1.0 {
+                    let fade_progress = (src_idx - (src_len_f32 - 1.0)) / 100.0;
+                    last_sample * (1.0 - fade_progress.min(1.0)) * volume
+                } else {
+                    0.0
+                };
+
+                let mut gain = 1.0;
+                if fade_in_samples > 0 && i < fade_in_samples {
+                    gain *= i as f32 / fade_in_samples as f32;
+                }
+                if fade_out_samples > 0 && mix_len > fade_out_samples && i >= fade_out_start {
+                    gain *= (mix_len - i) as f32 / fade_out_samples as f32;
+                }
+
+                canvas[dest_idx] += val * gain;
+            }
         }
 
         tracing::debug!("Part {} mixed in {:?}", idx, part_start.elapsed());

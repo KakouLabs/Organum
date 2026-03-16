@@ -6,10 +6,10 @@ use std::time::Instant;
 use crate::resampler::{
     common::consts,
     common::flags::parse_flags,
-    common::utils::{self, interpolate_frames, to_feature_path},
+    common::utils::{self, interpolate_frames_matrix, to_feature_path},
     device::DevicePolicy,
-    io::audio::{read_audio, write_audio},
-    io::features::{generate_features, read_features, write_features},
+    io::audio::write_audio,
+    io::cache::load_features_cached,
     stages::aperiodicity::{apply_aperiodicity_mods, AperiodicityStageParams},
     stages::dynamics::apply_dynamics,
     stages::pitch::generate_pitch,
@@ -32,41 +32,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let output_dither = config.output_dither;
 
     let start_features = Instant::now();
-    let features = if feature_path.exists() {
-        match read_features(&feature_path, config) {
-            Ok(f) => {
-                tracing::info!("cache hit: loaded features from {:?}", feature_path);
-                f
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "cache miss: cache {:?} is invalid ({}), regenerating",
-                    feature_path,
-                    e
-                );
-                let audio = read_audio(input_path, sample_rate)?;
-                let features = generate_features(&audio, sample_rate, frame_period)?;
-                let _ = write_features(
-                    &feature_path,
-                    &features,
-                    config.zstd_compression_level,
-                    config,
-                );
-                features
-            }
-        }
-    } else {
-        tracing::info!("cache miss: no cache file for {:?}", input_path);
-        let audio = read_audio(input_path, sample_rate)?;
-        let features = generate_features(&audio, sample_rate, frame_period)?;
-        let _ = write_features(
-            &feature_path,
-            &features,
-            config.zstd_compression_level,
-            config,
-        );
-        features
-    };
+    let features_owned = load_features_cached(input_path, &feature_path, config)?;
 
     tracing::debug!("Feature stage completed in {:?}", start_features.elapsed());
 
@@ -74,12 +40,12 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let fps = 1000.0 / frame_period;
 
     // Build timing map and frame-aligned pitch offsets.
-    let timing = calculate_timing(req, &features.f0, features.base_f0, fps)?;
+    let timing = calculate_timing(req, &features_owned.f0, features_owned.base_f0, fps)?;
 
     // Resample feature curves onto the render timeline.
     let (mgc_render, bap_render) = join(
-        || interpolate_frames(&features.mgc, &timing.t_render),
-        || interpolate_frames(&features.bap, &timing.t_render),
+        || interpolate_frames_matrix(&features_owned.mgc, &timing.t_render),
+        || interpolate_frames_matrix(&features_owned.bap, &timing.t_render),
     );
 
     let parsed_flags = parse_flags(&req.flags);
@@ -89,7 +55,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
     let (mut sp_render, mut ap_render) = join(
         || {
             rsworld::decode_spectral_envelope(
-                &mgc_render,
+                &mgc_render.to_vecs(),
                 timing.render_length as i32,
                 sample_rate as i32,
                 consts::FFT_SIZE,
@@ -97,7 +63,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
         },
         || {
             rsworld::decode_aperiodicity(
-                &bap_render,
+                &bap_render.to_vecs(),
                 timing.render_length as i32,
                 sample_rate as i32,
             )
@@ -136,6 +102,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
                         total_factor,
                         target_base_f0,
                         warp_device,
+                        config.quality_preset,
                     )
                 },
                 || {
@@ -149,6 +116,7 @@ pub fn resample(req: &ResampleRequest) -> Result<()> {
                             c_flag: parsed_flags.c,
                             b_flag: parsed_flags.b,
                             device: ap_device,
+                            quality_preset: config.quality_preset,
                         },
                     )
                 },

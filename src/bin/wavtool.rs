@@ -1,51 +1,9 @@
 use organum::wavtool::{concatenate, AudioPart, EnvPoint, WavtoolRequest};
+use std::cmp::Ordering;
 use std::env;
-use std::fs;
 use std::path::Path;
-use tracing_subscriber::EnvFilter;
 
 const WAVTOOL_USAGE: &str = "Usage:\n  organum-wavtool [--verbose] [--log-format pretty|json] <outfile> <infile> <skip_ms> <length_ms> [p1 p2 p3] [v1 v2 v3 v4] [overlap] [consonant] [blank]\n\nExamples:\n  organum-wavtool out.wav in.wav 0 480\n  organum-wavtool out.wav in.wav 0 480 5 35 35 0 100 100 0 20\n  organum-wavtool --json request.json\n\nNotes:\n  - All timing values are in milliseconds\n  - If length_ms is 0, source length is used\n";
-
-fn init_tracing(verbose: bool, json_logs: bool) {
-    let env_filter = if verbose {
-        EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into())
-    } else {
-        EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into())
-    };
-
-    let builder = tracing_subscriber::fmt().with_env_filter(env_filter);
-    if json_logs {
-        builder.json().init();
-    } else {
-        builder.init();
-    }
-}
-
-fn parse_runtime_log_options(raw_args: Vec<String>) -> (Vec<String>, bool, bool) {
-    let mut args = vec![raw_args[0].clone()];
-    let mut verbose = false;
-    let mut json_logs = false;
-
-    let mut i = 1;
-    while i < raw_args.len() {
-        match raw_args[i].as_str() {
-            "--verbose" => {
-                verbose = true;
-                i += 1;
-            }
-            "--log-format" if i + 1 < raw_args.len() => {
-                json_logs = raw_args[i + 1].eq_ignore_ascii_case("json");
-                i += 2;
-            }
-            _ => {
-                args.extend(raw_args[i..].iter().cloned());
-                break;
-            }
-        }
-    }
-
-    (args, verbose, json_logs)
-}
 
 fn get_wav_duration_ms(path: &Path) -> f32 {
     if let Ok(reader) = hound::WavReader::open(path) {
@@ -59,8 +17,8 @@ fn get_wav_duration_ms(path: &Path) -> f32 {
 
 fn main() {
     let raw_args: Vec<String> = env::args().collect();
-    let (args, verbose, json_logs) = parse_runtime_log_options(raw_args);
-    init_tracing(verbose, json_logs);
+    let (args, verbose, json_logs) = organum::cli::parse_runtime_log_options(raw_args);
+    organum::cli::init_tracing(verbose, json_logs);
 
     if args.len() == 2 && (args[1] == "--help" || args[1] == "-h") {
         println!("{}", WAVTOOL_USAGE);
@@ -81,8 +39,13 @@ fn main() {
 
     // Check for JSON mode
     if args.len() == 3 && args[1] == "--json" {
-        let json_str = fs::read_to_string(&args[2]).expect("Failed to read JSON file");
-        let req: WavtoolRequest = serde_json::from_str(&json_str).unwrap();
+        let req: WavtoolRequest = match organum::cli::read_json_file(Path::new(&args[2])) {
+            Ok(req) => req,
+            Err(e) => {
+                eprintln!("Error reading JSON request: {e}");
+                std::process::exit(1);
+            }
+        };
         if let Err(e) = concatenate(&req) {
             eprintln!("Error joining audio: {}", e);
             std::process::exit(1);
@@ -197,7 +160,7 @@ fn main() {
     }
 
     // Sort envelope points to be valid
-    envelope.sort_by(|a, b| a.time_ms.partial_cmp(&b.time_ms).unwrap());
+    envelope.sort_by(|a, b| a.time_ms.partial_cmp(&b.time_ms).unwrap_or(Ordering::Equal));
 
     let req = WavtoolRequest {
         output_file: outfile,

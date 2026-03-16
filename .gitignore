@@ -8,5 +8,7 @@ dist
 /simd-validation/
 __pycache__
 **/__pycache__
+*.pyc
+.pytest_cache/
 audios/simd_test
 samples.txt

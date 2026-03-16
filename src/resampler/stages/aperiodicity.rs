@@ -7,6 +7,7 @@ pub struct AperiodicityStageParams {
     pub c_flag: f64,
     pub b_flag: f64,
     pub device: Device,
+    pub quality_preset: crate::config::QualityPreset,
 }
 
 pub fn apply_aperiodicity_mods(
@@ -23,6 +24,7 @@ pub fn apply_aperiodicity_mods(
         c_flag,
         b_flag,
         device,
+        quality_preset,
     } = *params;
 
     let h_factor = if h_flag > 0.0 {
@@ -40,6 +42,7 @@ pub fn apply_aperiodicity_mods(
     let breathiness_cap = (1.0 - spectral_control * 0.35).clamp(0.55, 1.0);
     let breathiness_factor = raw_breathiness_factor.clamp(-breathiness_cap, breathiness_cap);
     let b_scale = (1.0 + breathiness_factor).clamp(0.0, 2.0);
+    let quality_profile = synthesis::QualityProfile::from_preset(quality_preset);
 
     let onset_fadein_frames = if scaled_cons_sec > 0.0 {
         ((0.050_f64).min(scaled_cons_sec * 0.25) * fps).round() as usize
@@ -56,6 +59,7 @@ pub fn apply_aperiodicity_mods(
             c_factor,
             breathiness_factor,
             b_scale,
+            quality_profile,
         ) {
             Ok(()) => return,
             Err(e) => {
@@ -73,5 +77,6 @@ pub fn apply_aperiodicity_mods(
         c_factor,
         breathiness_factor,
         b_scale,
+        quality_profile,
     );
 }

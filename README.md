@@ -87,9 +87,20 @@ compressor_limit: 0.99
 gpu_warp_enabled: false
 gpu_warp_min_frames: 18446744073709551615
 gpu_ap_min_frames: 18446744073709551615
+output_dither: true
+memory_cache_enabled: true
+memory_cache_max_mb: 256
+quality_preset: "balanced"
 ```
 
 캐시는 포맷/스키마/엔진 버전 및 주요 설정(`sample_rate`, `frame_period`)이 현재 실행 값과 다르면 자동으로 무효화 후 재생성됩니다.
+
+### Quality Presets
+
+- `classic`: 최근 품질 보정 없이, 기존 WORLD 느낌을 최대한 유지합니다.
+- `balanced`: 기본값. 기존 느낌을 크게 해치지 않으면서 자음 노이즈/숨소리 실패/고음 긴장감을 완화합니다.
+- `clear`: 고음의 답답함을 더 줄이고, 자음 선명도를 조금 더 살립니다.
+- `breathy-safe`: breath / `h` 계열 안정성을 더 우선시합니다. 일부 음원에서는 더 부드럽고 안전하게 들릴 수 있습니다.
 
 자세한 내용은 [Configuration Guide](docs/CONFIGURATION.md) 참고.
 

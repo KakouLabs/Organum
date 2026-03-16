@@ -1,55 +1,30 @@
 use anyhow::Result;
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use organum::cli::init_tracing;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tracing_subscriber::EnvFilter;
 use walkdir::WalkDir;
 
 use organum::resampler::generate_and_cache_features;
 
 #[derive(Parser, Debug)]
-#[command(
-    author,
-    version,
-    about = "Organum cache generation tool",
-    long_about = "Pre-analyzes voicebank WAV files and generates Organum feature cache files.\n\nExamples:\n  caching-tool.exe \"C:\\Voicebank\"\n  caching-tool.exe \"C:\\Voicebank\" --threads 8 --force\n\nTip:\n  - Use --verbose for per-file diagnostics\n  - Use --threads to tune throughput on large voicebanks"
-)]
+#[command(author, version, about = "Organum cache generation tool")]
 struct Args {
-    /// Path to the Voicebank directory
     path_to_voicebank: String,
 
-    /// Force regeneration of cache files even if they already exist
     #[arg(short, long)]
     force: bool,
 
-    /// Number of threads to use (default: number of logical cores)
     #[arg(short, long)]
     threads: Option<usize>,
 
-    /// Enable verbose logging
     #[arg(short, long)]
     verbose: bool,
 
-    /// Log output format: pretty or json
     #[arg(long, default_value = "pretty", value_parser = ["pretty", "json"])]
     log_format: String,
-}
-
-fn init_tracing(verbose: bool, json_logs: bool) {
-    let env_filter = if verbose {
-        EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into())
-    } else {
-        EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into())
-    };
-
-    let builder = tracing_subscriber::fmt().with_env_filter(env_filter);
-    if json_logs {
-        builder.json().init();
-    } else {
-        builder.init();
-    }
 }
 
 fn main() -> Result<()> {
@@ -98,7 +73,7 @@ fn main() -> Result<()> {
     pb.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) - {msg}")
-            .unwrap()
+            .map_err(|e| anyhow::anyhow!("invalid progress bar template: {e}"))?
             .progress_chars("=>-"),
     );
 

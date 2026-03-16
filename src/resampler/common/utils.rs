@@ -1,4 +1,5 @@
 use crate::resampler::common::consts;
+use crate::resampler::types::MatrixF64;
 use rayon::prelude::*;
 use std::path::Path;
 
@@ -79,44 +80,62 @@ impl<'a> CubicSplineInterpolator<'a> {
 }
 
 pub fn interpolate_frames(vec_2d: &[Vec<f64>], points: &[f64]) -> Vec<Vec<f64>> {
-    if vec_2d.is_empty() {
-        return vec![];
+    let src = MatrixF64::from_vecs(vec_2d)
+        .unwrap_or_else(|_| MatrixF64::from_flat(Vec::new(), 0, 0).expect("empty matrix is valid"));
+    interpolate_frames_matrix(&src, points).to_vecs()
+}
+
+pub fn interpolate_frames_matrix(src: &MatrixF64, points: &[f64]) -> MatrixF64 {
+    if src.rows == 0 || src.cols == 0 {
+        return MatrixF64 {
+            data: Vec::new(),
+            rows: 0,
+            cols: 0,
+        };
     }
-    let n_frames = vec_2d.len();
-    let n_dims = vec_2d[0].len();
+
+    let n_frames = src.rows;
+    let n_dims = src.cols;
     let out_len = points.len();
-    let mut out = vec![vec![0.0; n_dims]; out_len];
+    let mut out = vec![0.0; out_len * n_dims];
     let last = (n_frames - 1) as f64;
 
     let fill_frame = |out_frame: &mut [f64], p: f64| {
         if p <= 0.0 {
-            out_frame.copy_from_slice(&vec_2d[0]);
+            out_frame.copy_from_slice(&src.data[..n_dims]);
         } else if p >= last {
-            out_frame.copy_from_slice(&vec_2d[n_frames - 1]);
+            let start = (n_frames - 1) * n_dims;
+            out_frame.copy_from_slice(&src.data[start..start + n_dims]);
         } else {
             let idx = p as usize;
             let frac = p - idx as f64;
-            let inv_frac = 1.0 - frac;
-            let frame_a = &vec_2d[idx];
-            let frame_b = &vec_2d[idx + 1];
+            let a_start = idx * n_dims;
+            let b_start = (idx + 1) * n_dims;
+            let frame_a = &src.data[a_start..a_start + n_dims];
+            let frame_b = &src.data[b_start..b_start + n_dims];
             for d in 0..n_dims {
-                out_frame[d] = frame_a[d] * inv_frac + frame_b[d] * frac;
+                let a = frame_a[d];
+                out_frame[d] = a + (frame_b[d] - a) * frac;
             }
         }
     };
 
     const PAR_THRESHOLD: usize = 1536;
     if out_len < PAR_THRESHOLD {
-        out.iter_mut()
+        out.chunks_mut(n_dims)
             .zip(points.iter().copied())
             .for_each(|(dst, p)| fill_frame(dst, p));
     } else {
-        out.par_iter_mut()
+        out.par_chunks_mut(n_dims)
             .zip(points.par_iter().copied())
             .for_each(|(dst, p)| fill_frame(dst, p));
     }
 
-    out
+    MatrixF64 {
+        data: out,
+        rows: out_len,
+        cols: n_dims,
+    }
 }
 
 pub fn to_feature_path(path: &Path, ext: &str) -> std::path::PathBuf {

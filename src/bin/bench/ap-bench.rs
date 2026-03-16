@@ -1,7 +1,7 @@
 use organum::resampler::device::DevicePolicy;
 use organum::resampler::synthesis::{
     apply_aperiodicity_cpu_batch, gpu_warp_stats, reset_gpu_warp_stats,
-    try_apply_aperiodicity_gpu_batch, WarpBackend,
+    try_apply_aperiodicity_gpu_batch, QualityProfile, WarpBackend,
 };
 use std::time::Instant;
 
@@ -86,6 +86,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
     let c_factor = 0.25;
     let breathiness_factor = 0.10;
     let b_scale = 0.8;
+    let profile = QualityProfile::from_preset(organum::config::QualityPreset::Balanced);
 
     if matches!(chosen, WarpBackend::Gpu) {
         reset_gpu_warp_stats();
@@ -105,6 +106,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                 c_factor,
                 breathiness_factor,
                 b_scale,
+                profile,
             );
         } else {
             apply_aperiodicity_cpu_batch(
@@ -115,6 +117,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                 c_factor,
                 breathiness_factor,
                 b_scale,
+                profile,
             );
         }
     }
@@ -137,6 +140,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                     c_factor,
                     breathiness_factor,
                     b_scale,
+                    profile,
                 ) {
                     eprintln!(
                         "[{:<11} {:?}] gpu batch failed, fallback to cpu: {}",
@@ -150,6 +154,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                         c_factor,
                         breathiness_factor,
                         b_scale,
+                        profile,
                     );
                 }
             } else {
@@ -161,6 +166,7 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                     c_factor,
                     breathiness_factor,
                     b_scale,
+                    profile,
                 );
             }
         }

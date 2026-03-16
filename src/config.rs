@@ -3,6 +3,21 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum QualityPreset {
+    Classic,
+    Balanced,
+    Clear,
+    BreathySafe,
+}
+
+impl Default for QualityPreset {
+    fn default() -> Self {
+        Self::Balanced
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OrganumConfig {
     #[serde(default = "default_feature_ext")]
@@ -34,6 +49,15 @@ pub struct OrganumConfig {
 
     #[serde(default = "default_output_dither")]
     pub output_dither: bool,
+
+    #[serde(default = "default_memory_cache_enabled")]
+    pub memory_cache_enabled: bool,
+
+    #[serde(default = "default_memory_cache_max_mb")]
+    pub memory_cache_max_mb: usize,
+
+    #[serde(default)]
+    pub quality_preset: QualityPreset,
 }
 
 fn default_feature_ext() -> String {
@@ -66,6 +90,12 @@ fn default_gpu_ap_min_frames() -> usize {
 fn default_output_dither() -> bool {
     true
 }
+fn default_memory_cache_enabled() -> bool {
+    true
+}
+fn default_memory_cache_max_mb() -> usize {
+    256
+}
 
 impl Default for OrganumConfig {
     fn default() -> Self {
@@ -80,6 +110,9 @@ impl Default for OrganumConfig {
             gpu_warp_min_frames: default_gpu_warp_min_frames(),
             gpu_ap_min_frames: default_gpu_ap_min_frames(),
             output_dither: default_output_dither(),
+            memory_cache_enabled: default_memory_cache_enabled(),
+            memory_cache_max_mb: default_memory_cache_max_mb(),
+            quality_preset: QualityPreset::default(),
         }
     }
 }
@@ -109,9 +142,15 @@ pub fn load_config() -> OrganumConfig {
               # Minimum render frames before trying GPU warp route (default: disabled/CPU-only)\n\
               gpu_warp_min_frames: {}\n\n\
               # Minimum render frames before trying GPU aperiodicity route (default: disabled/CPU-only)\n\
-              gpu_ap_min_frames: {}\n\
+             gpu_ap_min_frames: {}\n\
              # Enable output dithering/noise-shaping on WAV write (default: true)\n\
-             output_dither: {}\n",
+             output_dither: {}\n\
+             # Enable in-process feature memory cache (default: true)\n\
+              memory_cache_enabled: {}\n\
+              # Maximum feature memory cache size in MiB (default: 256)\n\
+             memory_cache_max_mb: {}\n\
+             # Quality preset: classic, balanced, clear, breathy-safe (default: balanced)\n\
+             quality_preset: \"{}\"\n",
             default_config.feature_extension,
             default_config.sample_rate,
             default_config.frame_period,
@@ -122,6 +161,14 @@ pub fn load_config() -> OrganumConfig {
             default_config.gpu_warp_min_frames,
             default_config.gpu_ap_min_frames,
             default_config.output_dither,
+            default_config.memory_cache_enabled,
+            default_config.memory_cache_max_mb,
+            match default_config.quality_preset {
+                QualityPreset::Classic => "classic",
+                QualityPreset::Balanced => "balanced",
+                QualityPreset::Clear => "clear",
+                QualityPreset::BreathySafe => "breathy-safe",
+            },
         );
         let _ = fs::write(&config_path, yaml_content);
         return default_config;
