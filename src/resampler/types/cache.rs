@@ -322,8 +322,8 @@ fn build_matrix_quantized_raw(matrix: &MatrixF64) -> (Vec<DimQuantParams>, Vec<i
     let mut q = Vec::with_capacity(frames * dims);
     for r in 0..frames {
         let row_start = r * dims;
-        for d in 0..dims {
-            q.push(params[d].quantize(matrix.data[row_start + d]));
+        for (d, param) in params.iter().enumerate().take(dims) {
+            q.push(param.quantize(matrix.data[row_start + d]));
         }
     }
     (params, q)
@@ -357,8 +357,8 @@ fn build_matrix_quantized_delta(matrix: &MatrixF64) -> (Vec<DimQuantParams>, Vec
     let mut q = Vec::with_capacity(frames * dims);
     for r in 0..frames {
         let row_start = r * dims;
-        for d in 0..dims {
-            q.push(params[d].quantize(delta_matrix.data[row_start + d]));
+        for (d, param) in params.iter().enumerate().take(dims) {
+            q.push(param.quantize(delta_matrix.data[row_start + d]));
         }
     }
     (params, q)
@@ -490,11 +490,11 @@ fn decode_matrix_quantized_delta(
 
     let q = read_i16_slice(data, cursor, frames * dims)?;
     let mut flat = vec![0.0; frames * dims];
-    for d in 0..dims {
+    for (d, param) in params.iter().enumerate().take(dims) {
         let mut acc = 0.0;
         for r in 0..frames {
             let idx = r * dims + d;
-            let delta = params[d].dequantize(q[idx]);
+            let delta = param.dequantize(q[idx]);
             acc = if r == 0 { delta } else { acc + delta };
             flat[idx] = acc;
         }
@@ -525,7 +525,7 @@ fn decode_matrix_adaptive(
 #[inline]
 fn append_i16_slice_le(out: &mut Vec<u8>, values: &[i16]) {
     if cfg!(target_endian = "little") {
-        let byte_len = values.len() * std::mem::size_of::<i16>();
+        let byte_len = std::mem::size_of_val(values);
         out.reserve(byte_len);
         for &v in values {
             out.extend_from_slice(&v.to_le_bytes());

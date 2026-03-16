@@ -3,19 +3,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum QualityPreset {
     Classic,
+    #[default]
     Balanced,
     Clear,
     BreathySafe,
-}
-
-impl Default for QualityPreset {
-    fn default() -> Self {
-        Self::Balanced
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

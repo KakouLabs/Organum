@@ -779,6 +779,7 @@ pub fn try_apply_warp_gpu_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Resul
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn apply_aperiodicity_cpu_batch(
     ap_render: &mut [Vec<f64>],
     vuv_render: &[u8],
@@ -975,6 +976,7 @@ pub fn apply_aperiodicity_cpu_batch(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn try_apply_aperiodicity_gpu_batch(
     ap_render: &mut [Vec<f64>],
     vuv_render: &[u8],
