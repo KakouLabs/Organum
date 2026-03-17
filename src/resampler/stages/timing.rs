@@ -66,15 +66,19 @@ pub fn calculate_timing(
         return Err(anyhow::anyhow!("Calculated render length is 0"));
     }
 
+    let cons_stretch_recip = 1.0 / cons_stretch;
+    let vowel_time_req = (length_req_sec - scaled_cons_sec).max(0.001);
+    let vowel_time_src = (end_sec - (start_sec + actual_cons_sec)).max(0.001);
+    let vowel_scale = vowel_time_src / vowel_time_req;
+    let vowel_base = start_sec + actual_cons_sec;
+
     let t_map = |i: usize| {
         let t_out_sec = (i as f64) / fps;
         let t_in_sec = if t_out_sec <= scaled_cons_sec && scaled_cons_sec > 0.0 {
-            start_sec + (t_out_sec / cons_stretch)
+            start_sec + (t_out_sec * cons_stretch_recip)
         } else {
             let vowel_time_out = t_out_sec - scaled_cons_sec;
-            let vowel_time_req = (length_req_sec - scaled_cons_sec).max(0.001);
-            let vowel_time_src = (end_sec - (start_sec + actual_cons_sec)).max(0.001);
-            (start_sec + actual_cons_sec) + vowel_time_out * (vowel_time_src / vowel_time_req)
+            vowel_base + vowel_time_out * vowel_scale
         };
         t_in_sec * fps
     };
@@ -99,12 +103,8 @@ pub fn calculate_timing(
             .unzip()
     };
     for i in 1..render_length.saturating_sub(1) {
-        let prev = vuv_render[i - 1];
-        let curr = vuv_render[i];
-        let next = vuv_render[i + 1];
-        if curr != prev && curr != next {
-            vuv_render[i] = prev;
-        }
+        let sum = vuv_render[i - 1] as u16 + vuv_render[i] as u16 + vuv_render[i + 1] as u16;
+        vuv_render[i] = (sum >= 2) as u8;
     }
 
     Ok(TimingData {

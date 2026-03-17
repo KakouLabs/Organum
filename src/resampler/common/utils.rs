@@ -145,7 +145,7 @@ pub fn to_feature_path(path: &Path, ext: &str) -> std::path::PathBuf {
 
 pub fn parse_pitchbend_to_semitones(pitchbend: &Option<Vec<i16>>) -> Vec<f64> {
     match pitchbend {
-        Some(pb) if !pb.is_empty() => pb.iter().map(|&v| v as f64 / 100.0).collect(),
+        Some(pb) if !pb.is_empty() => pb.iter().map(|&v| v as f64 * 0.01).collect(),
         _ => vec![0.0],
     }
 }

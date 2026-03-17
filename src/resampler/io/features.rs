@@ -78,7 +78,7 @@ pub fn is_feature_cache_compatible(path: &Path, config: &crate::config::OrganumC
 }
 
 pub fn generate_features(
-    audio: &[f64],
+    audio: Vec<f64>,
     sample_rate: u32,
     frame_period: f64,
 ) -> Result<WorldFeatures> {
@@ -103,26 +103,23 @@ pub fn generate_features(
         threshold: consts::D4C_THRESHOLD,
     };
 
-    let audio_vec = audio.to_vec();
-    let (t, f0_rough) = dio(&audio_vec, sample_rate as i32, &dio_opts);
-    let f0 = stonemask(&audio_vec, sample_rate as i32, &t, &f0_rough);
+    let (t, f0_rough) = dio(&audio, sample_rate as i32, &dio_opts);
+    let f0 = stonemask(&audio, sample_rate as i32, &t, &f0_rough);
 
-    let sp = cheaptrick(
-        &audio_vec,
-        sample_rate as i32,
-        &t,
-        &f0,
-        &mut cheaptrick_opts,
-    );
-
-    let mut ap = d4c(&audio_vec, sample_rate as i32, &t, &f0, &d4c_opts);
-    for ap_frame in ap.iter_mut() {
-        for a in ap_frame.iter_mut() {
-            if a.is_nan() {
-                *a = 0.0;
+    let (sp, ap) = rayon::join(
+        || cheaptrick(&audio, sample_rate as i32, &t, &f0, &mut cheaptrick_opts),
+        || {
+            let mut ap = d4c(&audio, sample_rate as i32, &t, &f0, &d4c_opts);
+            for ap_frame in ap.iter_mut() {
+                for a in ap_frame.iter_mut() {
+                    if a.is_nan() {
+                        *a = 0.0;
+                    }
+                }
             }
-        }
-    }
+            ap
+        },
+    );
 
     let base_f0 = calculate_base_f0(&f0);
     let mgc = code_spectral_envelope(

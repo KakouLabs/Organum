@@ -1,6 +1,5 @@
 use organum::resampler::{resample, ResampleRequest};
 use std::env;
-use std::path::Path;
 
 const RESAMPLER_USAGE: &str = "Usage:\n  organum-resampler [--verbose] [--log-format pretty|json] <input> <output> <pitch> <velocity> [flags offset length_req fixed_length end_blank volume modulation !tempo pitchbend]\n\nExamples:\n  organum-resampler input.wav output.wav C4 100\n  organum-resampler input.wav output.wav C4 100 g+10B60A120 0 480 0 0 100 30 !120 #5#10#0\n  organum-resampler --json request.json\n\nNotes:\n  - Flags are case-insensitive. Common flags: g, B, M, t, A, P, C, H, D, F\n  - If flags is empty, use '-'\n  - tempo accepts both '!120' and '120'\n";
 
@@ -43,13 +42,14 @@ fn warn_if_out_of_range(name: &str, value: f32, min: f32, max: f32) {
 
 fn parse_json_mode(args: &[String]) -> bool {
     if args.len() == 3 && args[1] == "--json" {
-        let req: ResampleRequest = match organum::cli::read_json_file(Path::new(&args[2])) {
-            Ok(req) => req,
-            Err(e) => {
-                eprintln!("Error reading JSON request: {e}");
-                std::process::exit(1);
-            }
-        };
+        let req: ResampleRequest =
+            match organum::cli::read_json_file(std::path::Path::new(&args[2])) {
+                Ok(req) => req,
+                Err(e) => {
+                    eprintln!("Error reading JSON request: {e}");
+                    std::process::exit(1);
+                }
+            };
         if let Err(e) = resample(&req) {
             eprintln!("Error resampling: {}", e);
             std::process::exit(1);
@@ -103,7 +103,7 @@ fn main() {
     }
 
     let to_absolute = |p: &str| -> String {
-        let path = Path::new(p);
+        let path = std::path::Path::new(p);
         if path.is_absolute() {
             p.to_string()
         } else {
@@ -185,8 +185,8 @@ fn main() {
     }
 
     let req = ResampleRequest {
-        input_file: input_file.clone(),
-        output_file: output_file.clone(),
+        input_file,
+        output_file,
         tone: tone.clone(),
         velocity,
         flags: actual_flags,
@@ -202,10 +202,6 @@ fn main() {
             Some(pitchbends)
         },
     };
-
-    let config = organum::config::load_config();
-    let _feature_path =
-        organum::resampler::to_feature_path(Path::new(&input_file), &config.feature_extension);
 
     if let Err(e) = resample(&req) {
         eprintln!("Error resampling: {:?}", e);

@@ -406,15 +406,21 @@ fn encode_matrix_adaptive(matrix: &MatrixF64, out: &mut Vec<u8>) {
     }
 
     let rough = matrix_delta_roughness(matrix);
+
+    if rough < 0.10 {
+        out.push(MODE_DELTA);
+        let (delta_params, delta_q) = build_matrix_quantized_delta(matrix);
+        encode_matrix_quantized_with_parts(out, &delta_params, &delta_q);
+        return;
+    }
+
     let (raw_params, raw_q) = build_matrix_quantized_raw(matrix);
     let (delta_params, delta_q) = build_matrix_quantized_delta(matrix);
 
     let raw_cost = estimate_quant_stream_cost(&raw_q);
     let delta_cost = estimate_quant_stream_cost(&delta_q);
-    let smooth = rough < 0.10;
 
-    let use_delta = smooth || delta_cost < raw_cost * 0.96;
-    if use_delta {
+    if delta_cost < raw_cost * 0.96 {
         out.push(MODE_DELTA);
         encode_matrix_quantized_with_parts(out, &delta_params, &delta_q);
     } else {
@@ -524,12 +530,11 @@ fn decode_matrix_adaptive(
 
 #[inline]
 fn append_i16_slice_le(out: &mut Vec<u8>, values: &[i16]) {
+    let byte_len = std::mem::size_of_val(values);
+    out.reserve(byte_len);
     if cfg!(target_endian = "little") {
-        let byte_len = std::mem::size_of_val(values);
-        out.reserve(byte_len);
-        for &v in values {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
+        let ptr = values.as_ptr() as *const u8;
+        unsafe { out.extend_from_slice(std::slice::from_raw_parts(ptr, byte_len)) };
     } else {
         for &v in values {
             out.extend_from_slice(&v.to_le_bytes());
@@ -547,16 +552,15 @@ fn read_i16_slice(data: &[u8], cursor: &mut usize, count: usize) -> anyhow::Resu
     *cursor += bytes_len;
 
     if cfg!(target_endian = "little") {
-        let mut out = Vec::with_capacity(count);
-        for chunk in bytes.chunks_exact(2) {
-            out.push(i16::from_le_bytes([chunk[0], chunk[1]]));
+        let mut out = vec![0i16; count];
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.as_mut_ptr() as *mut u8, bytes_len);
         }
         Ok(out)
     } else {
         let mut out = Vec::with_capacity(count);
-        for i in 0..count {
-            let base = i * 2;
-            out.push(i16::from_le_bytes([bytes[base], bytes[base + 1]]));
+        for chunk in bytes.chunks_exact(2) {
+            out.push(i16::from_le_bytes([chunk[0], chunk[1]]));
         }
         Ok(out)
     }

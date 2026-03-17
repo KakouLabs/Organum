@@ -24,8 +24,9 @@ fn configured_capacity_bytes(config: &crate::config::OrganumConfig) -> usize {
 struct FeatureMemoryCache {
     capacity_bytes: usize,
     used_bytes: usize,
-    map: HashMap<PathBuf, Arc<WorldFeaturesOwned>>,
-    order: VecDeque<PathBuf>,
+    map: HashMap<PathBuf, (Arc<WorldFeaturesOwned>, u64)>,
+    order: VecDeque<(PathBuf, u64)>,
+    generation: u64,
 }
 
 impl FeatureMemoryCache {
@@ -35,48 +36,51 @@ impl FeatureMemoryCache {
             used_bytes: 0,
             map: HashMap::new(),
             order: VecDeque::new(),
+            generation: 0,
         }
+    }
+
+    fn next_gen(&mut self) -> u64 {
+        self.generation += 1;
+        self.generation
     }
 
     fn get(&mut self, key: &Path) -> Option<Arc<WorldFeaturesOwned>> {
         let k = key.to_path_buf();
-        let v = self.map.get(&k)?.clone();
-        self.touch(&k);
+        let (v, _) = self.map.get(&k)?;
+        let v = Arc::clone(v);
+        let gen = self.next_gen();
+        self.map.get_mut(&k).unwrap().1 = gen;
+        self.order.push_back((k, gen));
         Some(v)
     }
 
     fn insert(&mut self, key: PathBuf, value: Arc<WorldFeaturesOwned>) {
-        if let Some(prev) = self.map.remove(&key) {
+        if let Some((prev, _)) = self.map.remove(&key) {
             self.used_bytes = self.used_bytes.saturating_sub(prev.byte_size());
-            self.remove_from_order(&key);
         }
 
         let size = value.byte_size();
-        self.map.insert(key.clone(), value);
-        self.order.push_back(key);
+        let gen = self.next_gen();
+        self.map.insert(key.clone(), (value, gen));
+        self.order.push_back((key, gen));
         self.used_bytes = self.used_bytes.saturating_add(size);
 
         self.evict_if_needed();
     }
 
-    fn touch(&mut self, key: &PathBuf) {
-        self.remove_from_order(key);
-        self.order.push_back(key.clone());
-    }
-
-    fn remove_from_order(&mut self, key: &PathBuf) {
-        if let Some(pos) = self.order.iter().position(|k| k == key) {
-            self.order.remove(pos);
-        }
-    }
-
     fn evict_if_needed(&mut self) {
         while self.used_bytes > self.capacity_bytes {
-            let Some(oldest) = self.order.pop_front() else {
+            let Some((oldest_key, oldest_gen)) = self.order.pop_front() else {
                 break;
             };
-            if let Some(v) = self.map.remove(&oldest) {
-                self.used_bytes = self.used_bytes.saturating_sub(v.byte_size());
+            match self.map.get(&oldest_key) {
+                Some((_, current_gen)) if *current_gen != oldest_gen => continue,
+                Some((v, _)) => {
+                    self.used_bytes = self.used_bytes.saturating_sub(v.byte_size());
+                    self.map.remove(&oldest_key);
+                }
+                None => continue,
             }
         }
     }
@@ -153,7 +157,7 @@ pub fn load_features_cached(
     }
 
     let audio = read_audio(input_path, config.sample_rate)?;
-    let features = generate_features(&audio, config.sample_rate, config.frame_period)?;
+    let features = generate_features(audio, config.sample_rate, config.frame_period)?;
     let _ = write_features(
         feature_path,
         &features,

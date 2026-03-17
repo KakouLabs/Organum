@@ -1,5 +1,6 @@
 use rayon::prelude::*;
 use std::cell::RefCell;
+use std::rc::Rc;
 #[cfg(feature = "gpu-warp")]
 use std::collections::VecDeque;
 #[cfg(not(feature = "gpu-warp"))]
@@ -622,13 +623,17 @@ struct WarpLutKey {
 }
 
 thread_local! {
-    static WARP_LUT_CACHE: RefCell<Vec<(WarpLutKey, WarpLut)>> = const { RefCell::new(Vec::new()) };
+    static WARP_LUT_CACHE: RefCell<Vec<(WarpLutKey, Rc<WarpLut>)>> = const { RefCell::new(Vec::new()) };
 }
 
 impl WarpLut {
     pub fn new(len: usize, fs: f64, factor: f64) -> Self {
         let df = fs / ((len - 1) as f64 * 2.0);
         let last = (len - 1) as f64;
+        let df_recip = 1.0 / df;
+        const MEL_SCALE: f64 = 2595.0 / std::f64::consts::LN_10;
+        const MEL_SCALE_INV: f64 = std::f64::consts::LN_10 / 2595.0;
+        const INV_700: f64 = 1.0 / 700.0;
 
         let mut idx_floor = Vec::with_capacity(len);
         let mut frac = Vec::with_capacity(len);
@@ -636,10 +641,10 @@ impl WarpLut {
 
         for i in 0..len {
             let f_dst = i as f64 * df;
-            let m_dst = 2595.0 * (1.0 + f_dst / 700.0).log10();
+            let m_dst = MEL_SCALE * (1.0 + f_dst * INV_700).ln();
             let m_src = m_dst * factor;
-            let f_src = 700.0 * (10.0f64.powf(m_src / 2595.0) - 1.0);
-            let src_idx = f_src / df;
+            let f_src = 700.0 * (m_src * MEL_SCALE_INV).exp_m1();
+            let src_idx = f_src * df_recip;
 
             if src_idx >= last {
                 idx_floor.push(len - 1);
@@ -660,7 +665,7 @@ impl WarpLut {
         }
     }
 
-    pub fn cached(len: usize, fs: f64, factor: f64) -> Self {
+    pub fn cached(len: usize, fs: f64, factor: f64) -> Rc<Self> {
         #[inline]
         fn factor_bucket(factor: f64) -> i32 {
             (factor * 500.0).round() as i32
@@ -675,17 +680,18 @@ impl WarpLut {
         WARP_LUT_CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
             if let Some(index) = cache.iter().position(|(cached_key, _)| *cached_key == key) {
-                let (_, lut) = cache.remove(index);
-                let cloned = lut.clone();
-                cache.push((key, lut));
+                let (_, lut) = &cache[index];
+                let cloned = Rc::clone(lut);
+                let entry = cache.remove(index);
+                cache.push(entry);
                 return cloned;
             }
 
-            let lut = Self::new(len, fs, factor);
+            let lut = Rc::new(Self::new(len, fs, factor));
             if cache.len() >= 16 {
                 cache.remove(0);
             }
-            cache.push((key, lut.clone()));
+            cache.push((key, Rc::clone(&lut)));
             lut
         })
     }
@@ -793,10 +799,16 @@ pub fn apply_aperiodicity_cpu_batch(
     const ONSET_BREATH_MAX: f64 = 0.6;
     const SIMD_F32_CONVERT_MIN_BINS: usize = 512;
 
+    let onset_recip = if onset_fadein_frames > 0 {
+        1.0 / onset_fadein_frames as f64
+    } else {
+        0.0
+    };
+
     #[inline]
-    fn onset_breath_factor_at(index: usize, onset_fadein_frames: usize) -> f64 {
+    fn onset_breath_factor_at(index: usize, onset_fadein_frames: usize, onset_recip: f64) -> f64 {
         if onset_fadein_frames > 0 && index < onset_fadein_frames {
-            let progress = index as f64 / onset_fadein_frames as f64;
+            let progress = index as f64 * onset_recip;
             (1.0 - (1.0 - (progress * std::f64::consts::PI).cos()) * 0.5) * ONSET_BREATH_MAX
         } else {
             0.0
@@ -807,6 +819,7 @@ pub fn apply_aperiodicity_cpu_batch(
     fn params_for_frame(
         index: usize,
         onset_fadein_frames: usize,
+        onset_recip: f64,
         h_factor: f64,
         c_factor: f64,
         breathiness_factor: f64,
@@ -817,7 +830,7 @@ pub fn apply_aperiodicity_cpu_batch(
             c_factor,
             breathiness_factor,
             b_scale,
-            onset_breath_factor: onset_breath_factor_at(index, onset_fadein_frames),
+            onset_breath_factor: onset_breath_factor_at(index, onset_fadein_frames, onset_recip),
         }
     }
 
@@ -837,7 +850,7 @@ pub fn apply_aperiodicity_cpu_batch(
             }
 
             let onset: Vec<f32> = (0..frame_count)
-                .map(|i| onset_breath_factor_at(i, onset_fadein_frames) as f32)
+                .map(|i| onset_breath_factor_at(i, onset_fadein_frames, onset_recip) as f32)
                 .collect();
 
             const PAR_THRESHOLD: usize = 2048;
@@ -876,21 +889,13 @@ pub fn apply_aperiodicity_cpu_batch(
                     });
             }
 
-            for (i, (frame, chunk)) in ap_render
+            for (frame, chunk) in ap_render
                 .iter_mut()
                 .zip(flat.chunks_exact(bins))
-                .enumerate()
             {
                 for (dst, &src) in frame.iter_mut().zip(chunk.iter()) {
                     *dst = src as f64;
                 }
-                let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
-                stabilize_aperiodicity_frame(
-                    frame,
-                    is_voiced,
-                    onset_breath_factor_at(i, onset_fadein_frames),
-                    quality_profile,
-                );
             }
             return;
         }
@@ -904,6 +909,7 @@ pub fn apply_aperiodicity_cpu_batch(
             let params = params_for_frame(
                 i,
                 onset_fadein_frames,
+                onset_recip,
                 h_factor,
                 c_factor,
                 breathiness_factor,
@@ -935,6 +941,7 @@ pub fn apply_aperiodicity_cpu_batch(
                 let params = params_for_frame(
                     i,
                     onset_fadein_frames,
+                    onset_recip,
                     h_factor,
                     c_factor,
                     breathiness_factor,
@@ -965,6 +972,7 @@ pub fn apply_aperiodicity_cpu_batch(
             let params = params_for_frame(
                 i,
                 onset_fadein_frames,
+                onset_recip,
                 h_factor,
                 c_factor,
                 breathiness_factor,

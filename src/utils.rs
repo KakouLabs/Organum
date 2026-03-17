@@ -161,19 +161,21 @@ pub fn parse_pitchbend(tempo_pb: &str, pitchbend_data: &str) -> (f32, Vec<i16>) 
     }
 
     let mut result: Vec<i16> = Vec::new();
-    let chars: Vec<char> = pitchbend_data.chars().collect();
+    let bytes = pitchbend_data.as_bytes();
+    let len = bytes.len();
     let mut i = 0;
 
-    while i < chars.len() {
-        if chars[i] == '#' && i + 1 < chars.len() {
-            let mut num_str = String::new();
+    while i < len {
+        if bytes[i] == b'#' && i + 1 < len {
             let mut j = i + 1;
-            while j < chars.len() && chars[j] != '#' {
-                num_str.push(chars[j]);
+            while j < len && bytes[j] != b'#' {
                 j += 1;
             }
-            if j < chars.len() && chars[j] == '#' {
-                if let Ok(count) = num_str.parse::<usize>() {
+            if j < len && bytes[j] == b'#' {
+                if let Some(count) = std::str::from_utf8(&bytes[i + 1..j])
+                    .ok()
+                    .and_then(|s| s.parse::<usize>().ok())
+                {
                     if let Some(&last) = result.last() {
                         for _ in 1..count {
                             result.push(last);
@@ -185,12 +187,9 @@ pub fn parse_pitchbend(tempo_pb: &str, pitchbend_data: &str) -> (f32, Vec<i16>) 
             }
         }
 
-        if i + 1 < chars.len() {
-            let c1 = chars[i];
-            let c2 = chars[i + 1];
-
-            let v1 = decode_utau_char(c1);
-            let v2 = decode_utau_char(c2);
+        if i + 1 < len {
+            let v1 = decode_utau_char(bytes[i] as char);
+            let v2 = decode_utau_char(bytes[i + 1] as char);
 
             if v1 >= 0 && v2 >= 0 {
                 let raw = v1 * 64 + v2;

@@ -38,12 +38,16 @@ pub fn apply_dynamics(syn: &mut [f64], d_flag: f64, p_flag: f64, volume: f64) {
 
         // If we only have a simple scale of 1.0 and no D-flag, we can skip the loop
         if d_enabled || (final_scale - 1.0).abs() > 0.001 {
+            let max_amp_recip = 1.0 / max_amp_orig;
+            let ratio_recip = 1.0 / ratio;
             let apply_syn = |s: &mut f64| {
                 if d_enabled {
-                    let abs_s = s.abs() / max_amp_orig;
+                    let abs_s = s.abs() * max_amp_recip;
                     if abs_s > threshold {
                         let over = abs_s - threshold;
-                        *s = s.signum() * (threshold + over / ratio) * max_amp_orig;
+                        *s = f64::copysign(1.0, *s)
+                            * (threshold + over * ratio_recip)
+                            * max_amp_orig;
                     }
                 }
                 *s *= final_scale;

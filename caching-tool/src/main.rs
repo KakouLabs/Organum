@@ -87,7 +87,7 @@ fn main() -> Result<()> {
             let audio = organum::resampler::read_audio(wav_path, config.sample_rate);
             audio.and_then(|audio| {
                 let features = organum::resampler::generate_features(
-                    &audio,
+                    audio,
                     config.sample_rate,
                     config.frame_period,
                 )?;

@@ -33,32 +33,43 @@ pub fn parse_flags(s: &str) -> ParsedFlags {
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c.is_ascii_alphabetic() {
-            let mut val_str = String::new();
+            let mut buf = [0u8; 32];
+            let mut len = 0usize;
             if let Some(&next) = chars.peek() {
                 if next == '+' || next == '-' {
-                    val_str.push(chars.next().unwrap());
+                    buf[len] = next as u8;
+                    len += 1;
+                    chars.next();
                 }
             }
             while let Some(&next) = chars.peek() {
                 if next.is_ascii_digit() || next == '.' {
-                    val_str.push(chars.next().unwrap());
+                    if len < buf.len() {
+                        buf[len] = next as u8;
+                        len += 1;
+                    }
+                    chars.next();
                 } else {
                     break;
                 }
             }
-            if let Ok(val) = val_str.parse::<f64>() {
-                match c {
-                    'g' | 'G' => flags.g = val,
-                    'B' | 'b' => flags.b = val,
-                    'M' => flags.m = val,
-                    't' | 'T' => flags.t = val,
-                    'A' | 'a' => flags.a = val,
-                    'P' | 'p' | 'Y' | 'y' => flags.p = val,
-                    'C' | 'c' => flags.c = val,
-                    'H' | 'h' => flags.h = val,
-                    'D' | 'd' => flags.d = val,
-                    'F' | 'f' => flags.f = val,
-                    _ => {}
+            if len > 0 {
+                if let Ok(val_str) = std::str::from_utf8(&buf[..len]) {
+                    if let Ok(val) = val_str.parse::<f64>() {
+                        match c {
+                            'g' | 'G' => flags.g = val,
+                            'B' | 'b' => flags.b = val,
+                            'M' => flags.m = val,
+                            't' | 'T' => flags.t = val,
+                            'A' | 'a' => flags.a = val,
+                            'P' | 'p' | 'Y' | 'y' => flags.p = val,
+                            'C' | 'c' => flags.c = val,
+                            'H' | 'h' => flags.h = val,
+                            'D' | 'd' => flags.d = val,
+                            'F' | 'f' => flags.f = val,
+                            _ => {}
+                        }
+                    }
                 }
             }
         }

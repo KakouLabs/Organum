@@ -30,7 +30,7 @@ fn analyze_i16_samples(samples: &[i16]) -> (f32, f32) {
 
 pub fn concatenate(req: &WavtoolRequest) -> Result<()> {
     let start_total = Instant::now();
-    let config = crate::config::load_config();
+    let config = crate::config::global_config();
     let sample_rate = config.sample_rate;
 
     tracing::info!(
@@ -202,31 +202,35 @@ pub fn concatenate(req: &WavtoolRequest) -> Result<()> {
 
     let mut error_accum = 0.0_f32;
     let mut prng = XorShift32::new(0x12345678);
-    for &s in &canvas {
-        let abs_s = s.abs();
-        let sign = s.signum();
+    const WRITE_CHUNK_SAMPLES: usize = 8192;
+    for chunk in canvas.chunks(WRITE_CHUNK_SAMPLES) {
+        let mut sample_writer = writer.get_i16_writer(chunk.len() as u32);
+        for &s in chunk {
+            let abs_s = s.abs();
+            let sign = s.signum();
 
-        let compressed = if abs_s <= threshold {
-            s
-        } else if abs_s <= max_amp && max_amp > threshold {
-            let ratio = (abs_s - threshold) / (max_amp - threshold + 0.001);
-            let target_range = limit - threshold;
-            sign * (threshold + ratio.sqrt() * target_range)
-        } else {
-            sign * limit
-        };
+            let compressed = if abs_s <= threshold {
+                s
+            } else if abs_s <= max_amp && max_amp > threshold {
+                let ratio = (abs_s - threshold) / (max_amp - threshold + 0.001);
+                let target_range = limit - threshold;
+                sign * (threshold + ratio.sqrt() * target_range)
+            } else {
+                sign * limit
+            };
 
-        let scaled = compressed * 32767.0 + error_accum;
+            let scaled = compressed * 32767.0 + error_accum;
 
-        // TPDF dither
-        let r1 = prng.next_f32();
-        let r2 = prng.next_f32();
+            let r1 = prng.next_f32();
+            let r2 = prng.next_f32();
 
-        let dither = r1 + r2;
+            let dither = r1 + r2;
 
-        let q = (scaled + dither).round().clamp(-32768.0, 32767.0) as i16;
-        error_accum = scaled - q as f32;
-        writer.write_sample(q)?;
+            let q = (scaled + dither).round().clamp(-32768.0, 32767.0) as i16;
+            error_accum = scaled - q as f32;
+            sample_writer.write_sample(q);
+        }
+        sample_writer.flush()?;
     }
     writer.finalize()?;
 

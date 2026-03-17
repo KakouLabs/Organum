@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 
 #[inline(always)]
@@ -7,9 +7,46 @@ pub fn cubic_interpolate(samples: &[f32], idx: f32) -> f32 {
 }
 
 pub fn read_wav_samples(path: &Path) -> Result<(Vec<f32>, u32)> {
-    let (samples_f64, sr) = crate::utils::decode_wav_samples(path)?;
-    let samples_f32: Vec<f32> = samples_f64.into_iter().map(|s| s as f32).collect();
-    Ok((samples_f32, sr))
+    let mut reader =
+        hound::WavReader::open(path).context(format!("Failed to open WAV: {:?}", path))?;
+    let spec = reader.spec();
+    let max_val: f32 = match spec.bits_per_sample {
+        8 => 128.0,
+        16 => 32768.0,
+        24 => 8388608.0,
+        32 => 2147483648.0,
+        _ => 32768.0,
+    };
+    let channels = spec.channels as usize;
+    let total_samples = reader.len() as usize;
+    let estimated_frames = total_samples / channels.max(1);
+
+    let mut mono: Vec<f32> = Vec::with_capacity(estimated_frames);
+
+    if channels <= 1 {
+        for s in reader.samples::<i32>() {
+            let sample = s.unwrap_or(0);
+            mono.push(sample as f32 / max_val);
+        }
+    } else {
+        let inv_ch = 1.0 / (channels as f32 * max_val);
+        let mut ch_sum: f32 = 0.0;
+        let mut ch_idx: usize = 0;
+
+        for s in reader.samples::<i32>() {
+            let sample = s.unwrap_or(0);
+            ch_sum += sample as f32;
+            ch_idx += 1;
+
+            if ch_idx == channels {
+                mono.push(ch_sum * inv_ch);
+                ch_sum = 0.0;
+                ch_idx = 0;
+            }
+        }
+    }
+
+    Ok((mono, spec.sample_rate))
 }
 
 #[cfg(test)]
