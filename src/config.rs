@@ -129,12 +129,27 @@ fn load_config_from_path(config_path: &Path) -> OrganumConfig {
         return OrganumConfig::default();
     }
 
-    if let Ok(content) = fs::read_to_string(&config_path) {
+    if let Ok(content) = fs::read_to_string(config_path) {
         if let Ok(config) = serde_yaml::from_str(&content) {
             return config;
         }
     }
     OrganumConfig::default()
+}
+
+static GLOBAL_CONFIG: OnceLock<OrganumConfig> = OnceLock::new();
+
+/// 전역 설정. 첫 호출 시 로드 후 캐싱.
+pub fn global_config() -> &'static OrganumConfig {
+    GLOBAL_CONFIG.get_or_init(load_config)
+}
+
+fn get_config_path() -> PathBuf {
+    if let Ok(mut exe_dir) = std::env::current_exe() {
+        exe_dir.pop();
+        return exe_dir.join("organum.yaml");
+    }
+    PathBuf::from("organum.yaml")
 }
 
 #[cfg(test)]
@@ -174,19 +189,4 @@ mod tests {
         assert_eq!(config.frame_period, 2.5);
         fs::remove_file(path).expect("test config should be removable");
     }
-}
-
-static GLOBAL_CONFIG: OnceLock<OrganumConfig> = OnceLock::new();
-
-/// 전역 설정. 첫 호출 시 로드 후 캐싱.
-pub fn global_config() -> &'static OrganumConfig {
-    GLOBAL_CONFIG.get_or_init(load_config)
-}
-
-fn get_config_path() -> PathBuf {
-    if let Ok(mut exe_dir) = std::env::current_exe() {
-        exe_dir.pop();
-        return exe_dir.join("organum.yaml");
-    }
-    PathBuf::from("organum.yaml")
 }
