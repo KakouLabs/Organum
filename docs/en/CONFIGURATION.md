@@ -1,6 +1,6 @@
 # Configuration
 
-Organum allows behavior customization through a YAML configuration file. Upon the first run, `organum.yaml` is automatically generated in the same directory as the executable.
+Organum allows behavior customization through a YAML configuration file. If `organum.yaml` is missing, Organum runs immediately with built-in defaults and does not create a file. To customize settings, create `organum.yaml` in the same directory as the executable.
 
 [한국어](../CONFIGURATION.md) | [English](CONFIGURATION.md) | [日本語](../ja/CONFIGURATION.md)
 
@@ -19,7 +19,7 @@ Organum allows behavior customization through a YAML configuration file. Upon th
 | `gpu_ap_min_frames` | integer | `usize::MAX` | Minimum render frame length to attempt GPU aperiodicity path |
 | `output_dither` | boolean | `true` | Whether to use dithering/noise shaping for WAV output |
 | `memory_cache_enabled` | boolean | `true` | Whether to use the in-process feature memory cache |
-| `memory_cache_max_mb` | integer | `256` | Maximum size of the in-process feature memory cache in MiB |
+| `memory_cache_max_mb` | integer | `512` | Maximum size of the in-process feature memory cache in MiB |
 | `quality_preset` | string | `"balanced"` | Quality tuning preset (`classic`, `balanced`, `clear`, `breathy-safe`) |
 
 > Note: The GPU path is an experimental feature. Due to its current implementation (upload/readback overhead), it may be slower than the CPU (SIMD/Parallel) path in typical rendering. Keeping it at the default (`false`) is recommended.
@@ -36,7 +36,7 @@ gpu_warp_min_frames: 18446744073709551615
 gpu_ap_min_frames: 18446744073709551615
 output_dither: true
 memory_cache_enabled: true
-memory_cache_max_mb: 256
+memory_cache_max_mb: 512
 quality_preset: "balanced"
 ```
 

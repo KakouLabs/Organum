@@ -75,7 +75,7 @@ wine organum-wavtool.exe --log-format json ...
 
 ## Configuration
 
-실행 시 `organum.yaml`이 없으면 기본값으로 자동 생성됩니다.
+실행 시 `organum.yaml`이 없으면 파일을 생성하지 않고 기본값으로 바로 실행됩니다. 설정을 바꾸려면 실행 파일과 같은 디렉토리에 `organum.yaml`을 직접 만들면 됩니다.
 
 ```yaml
 feature_extension: "ogc"
@@ -89,7 +89,7 @@ gpu_warp_min_frames: 18446744073709551615
 gpu_ap_min_frames: 18446744073709551615
 output_dither: true
 memory_cache_enabled: true
-memory_cache_max_mb: 256
+memory_cache_max_mb: 512
 quality_preset: "balanced"
 ```
 
@@ -104,11 +104,12 @@ quality_preset: "balanced"
 
 자세한 내용은 [Configuration Guide](docs/CONFIGURATION.md) 참고.
 
-SIMD 검증/벤치 가이드는 [SIMD Validation](docs/SIMD_VALIDATION.md) 참고.
+SIMD 검증/벤치 가이드는 [SIMD Validation](docs/SIMD_VALIDATION.md), 병목 분석용 flamegraph 가이드는 [Profiling](docs/PROFILING.md) 참고.
 
 ## Build
 
 Organum은 단일 릴리스 프로파일(`release`)을 사용합니다.
+Organum은 Rust-native WORLD 경로(`world::native`)를 사용합니다.
 
 ```bash
 cargo build --workspace --release
@@ -146,4 +147,6 @@ Kasane Teto UTAU voicebank 기준, 약 500ms 세그먼트 처리 시간.
 
 ## License
 
-MIT
+Organum is distributed under the MIT License. See [LICENSE](LICENSE).
+
+The Rust-native WORLD implementation is shipped with the original WORLD BSD-style notice for attribution and redistribution hygiene. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `licenses/WORLD_BSD-3-Clause.txt`.

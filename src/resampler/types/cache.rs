@@ -3,7 +3,9 @@ use std::hash::{Hash, Hasher};
 
 use super::features::WorldFeatures;
 
-#[derive(Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MatrixF64 {
     pub data: Vec<f64>,
     pub rows: usize,
@@ -47,6 +49,11 @@ impl MatrixF64 {
     pub fn byte_size(&self) -> usize {
         self.data.len() * std::mem::size_of::<f64>()
     }
+
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [f64] {
+        &mut self.data
+    }
 }
 
 #[derive(Clone)]
@@ -66,10 +73,8 @@ impl WorldFeaturesOwned {
         Self {
             base_f0: wf.base_f0,
             f0: wf.f0.clone(),
-            mgc: MatrixF64::from_vecs(&wf.mgc)
-                .unwrap_or_else(|e| panic!("invalid mgc matrix: {e}")),
-            bap: MatrixF64::from_vecs(&wf.bap)
-                .unwrap_or_else(|e| panic!("invalid bap matrix: {e}")),
+            mgc: wf.mgc.clone(),
+            bap: wf.bap.clone(),
         }
     }
 
@@ -77,15 +82,16 @@ impl WorldFeaturesOwned {
         WorldFeatures {
             base_f0: self.base_f0,
             f0: self.f0.clone(),
-            mgc: self.mgc.to_vecs(),
-            bap: self.bap.to_vecs(),
+            mgc: self.mgc.clone(),
+            bap: self.bap.clone(),
         }
     }
 }
 
 pub const CACHE_V5_MAGIC: [u8; 4] = *b"OGN5";
 pub const CACHE_V5_HEADER_SIZE: usize = 40;
-pub const CACHE_V5_FORMAT_VERSION: u32 = 5;
+pub const CACHE_V5_FORMAT_VERSION: u32 = 6;
+const CACHE_BACKEND_TAG: &str = "world-native-f64-cache-f32-native";
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -136,20 +142,36 @@ impl CacheV5Header {
     }
 }
 
-pub fn compute_cache_key(sample_rate: u32, frame_period_micros: u32) -> u64 {
+fn compute_cache_key_for_backend(
+    backend_tag: &str,
+    sample_rate: u32,
+    frame_period_micros: u32,
+    source_hash: u64,
+) -> u64 {
     let mut h = DefaultHasher::new();
     env!("CARGO_PKG_VERSION").hash(&mut h);
     CACHE_V5_FORMAT_VERSION.hash(&mut h);
+    backend_tag.hash(&mut h);
     sample_rate.hash(&mut h);
     frame_period_micros.hash(&mut h);
+    source_hash.hash(&mut h);
     h.finish()
+}
+
+pub fn compute_cache_key(sample_rate: u32, frame_period_micros: u32, source_hash: u64) -> u64 {
+    compute_cache_key_for_backend(
+        CACHE_BACKEND_TAG,
+        sample_rate,
+        frame_period_micros,
+        source_hash,
+    )
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct DimQuantParams {
-    pub bias: f32,
-    pub scale: f32,
+    pub bias: f64,
+    pub scale: f64,
 }
 
 impl DimQuantParams {
@@ -173,10 +195,14 @@ impl DimQuantParams {
             }
         }
 
+        Self::from_min_max(min_val, max_val)
+    }
+
+    fn from_min_max(min_val: f64, max_val: f64) -> Self {
         let range = max_val - min_val;
         if range < 1e-12 {
             return Self {
-                bias: min_val as f32,
+                bias: min_val,
                 scale: 1.0,
             };
         }
@@ -185,21 +211,18 @@ impl DimQuantParams {
         let half_range = range * 0.5;
         let scale = half_range / 32767.0;
 
-        Self {
-            bias: mid as f32,
-            scale: scale as f32,
-        }
+        Self { bias: mid, scale }
     }
 
     #[inline]
     pub fn quantize(&self, value: f64) -> i16 {
-        let q = ((value - self.bias as f64) / self.scale as f64).round();
+        let q = ((value - self.bias) / self.scale).round();
         q.clamp(-32768.0, 32767.0) as i16
     }
 
     #[inline]
     pub fn dequantize(&self, q: i16) -> f64 {
-        q as f64 * self.scale as f64 + self.bias as f64
+        q as f64 * self.scale + self.bias
     }
 }
 
@@ -208,35 +231,41 @@ pub fn v5_payload_size(frame_count: usize, mgc_dims: usize, bap_dims: usize) -> 
 }
 
 pub fn v5_payload_upper_bound(frame_count: usize, mgc_dims: usize, bap_dims: usize) -> usize {
-    4 + 4
-        + 4
+    8 + 8
+        + 8
         + 2 * frame_count
         + 1
-        + 8 * mgc_dims
+        + 16 * mgc_dims
         + 2 * frame_count * mgc_dims
         + 1
-        + 8 * bap_dims
+        + 16 * bap_dims
         + 2 * frame_count * bap_dims
 }
 
 pub fn encode_v5_payload(features: &WorldFeaturesOwned) -> Vec<u8> {
-    let frame_count = features.f0.len();
-    let mgc_dims = features.mgc.cols;
-    let bap_dims = features.bap.cols;
+    encode_v5_payload_parts(features.base_f0, &features.f0, &features.mgc, &features.bap)
+}
+
+pub fn encode_v5_payload_features(features: &WorldFeatures) -> Vec<u8> {
+    encode_v5_payload_parts(features.base_f0, &features.f0, &features.mgc, &features.bap)
+}
+
+fn encode_v5_payload_parts(base_f0: f64, f0: &[f64], mgc: &MatrixF64, bap: &MatrixF64) -> Vec<u8> {
+    let frame_count = f0.len();
+    let mgc_dims = mgc.cols;
+    let bap_dims = bap.cols;
 
     let mut out = Vec::with_capacity(v5_payload_upper_bound(frame_count, mgc_dims, bap_dims));
 
-    out.extend_from_slice(&(features.base_f0 as f32).to_le_bytes());
+    out.extend_from_slice(&base_f0.to_le_bytes());
 
-    let (f0_base, f0_scale, f0_deltas) = f0_delta_encode_i16(&features.f0);
+    let (f0_base, f0_scale) = f0_delta_encode_params(f0);
     out.extend_from_slice(&f0_base.to_le_bytes());
     out.extend_from_slice(&f0_scale.to_le_bytes());
-    for d in f0_deltas {
-        out.extend_from_slice(&d.to_le_bytes());
-    }
+    append_f0_delta_i16_le(&mut out, f0, f0_scale);
 
-    encode_matrix_adaptive(&features.mgc, &mut out);
-    encode_matrix_adaptive(&features.bap, &mut out);
+    encode_matrix_adaptive(mgc, &mut out);
+    encode_matrix_adaptive(bap, &mut out);
 
     out
 }
@@ -248,10 +277,10 @@ pub fn decode_v5_payload(
     bap_dims: usize,
 ) -> anyhow::Result<WorldFeaturesOwned> {
     let mut cursor = 0usize;
-    let base_f0 = read_f32(data, &mut cursor)? as f64;
+    let base_f0 = read_f64(data, &mut cursor)?;
 
-    let f0_base = read_f32(data, &mut cursor)?;
-    let f0_scale = read_f32(data, &mut cursor)?;
+    let f0_base = read_f64(data, &mut cursor)?;
+    let f0_scale = read_f64(data, &mut cursor)?;
     let f0 = f0_delta_decode_i16(f0_base, f0_scale, data, &mut cursor, frame_count)?;
 
     let mgc = decode_matrix_adaptive(data, &mut cursor, frame_count, mgc_dims)?;
@@ -265,38 +294,51 @@ pub fn decode_v5_payload(
     })
 }
 
-fn f0_delta_encode_i16(f0: &[f64]) -> (f32, f32, Vec<i16>) {
+fn f0_delta_encode_params(f0: &[f64]) -> (f64, f64) {
     if f0.is_empty() {
-        return (0.0, 1.0, Vec::new());
+        return (0.0, 1.0);
     }
 
-    let f0_base = f0[0] as f32;
-    let mut deltas = Vec::with_capacity(f0.len());
+    let f0_base = f0[0];
     let mut prev = f0_base;
+    let mut max_abs = 0.0_f64;
     for &v in f0 {
-        let cur = v as f32;
-        deltas.push(cur - prev);
+        let cur = v;
+        max_abs = max_abs.max((cur - prev).abs());
         prev = cur;
     }
 
-    let max_abs = deltas.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
     let scale = if max_abs < 1e-12 {
         1.0
     } else {
         max_abs / 32767.0
     };
 
-    let q = deltas
-        .into_iter()
-        .map(|d| (d / scale).round().clamp(-32768.0, 32767.0) as i16)
-        .collect();
+    (f0_base, scale)
+}
 
-    (f0_base, scale, q)
+fn append_f0_delta_i16_le(out: &mut Vec<u8>, f0: &[f64], scale: f64) {
+    out.reserve(f0.len() * std::mem::size_of::<i16>());
+
+    let Some((&first, rest)) = f0.split_first() else {
+        return;
+    };
+
+    let first_delta = 0.0_f64;
+    let first_q = (first_delta / scale).round().clamp(-32768.0, 32767.0) as i16;
+    out.extend_from_slice(&first_q.to_le_bytes());
+
+    let mut prev = first;
+    for &cur in rest {
+        let q = ((cur - prev) / scale).round().clamp(-32768.0, 32767.0) as i16;
+        out.extend_from_slice(&q.to_le_bytes());
+        prev = cur;
+    }
 }
 
 fn f0_delta_decode_i16(
-    f0_base: f32,
-    f0_scale: f32,
+    f0_base: f64,
+    f0_scale: f64,
     data: &[u8],
     cursor: &mut usize,
     frame_count: usize,
@@ -305,8 +347,8 @@ fn f0_delta_decode_i16(
     let mut acc = f0_base;
     for _ in 0..frame_count {
         let q = read_i16(data, cursor)?;
-        acc += q as f32 * f0_scale;
-        out.push(acc as f64);
+        acc += q as f64 * f0_scale;
+        out.push(acc);
     }
     Ok(out)
 }
@@ -315,8 +357,24 @@ fn build_matrix_quantized_raw(matrix: &MatrixF64) -> (Vec<DimQuantParams>, Vec<i
     let dims = matrix.cols;
     let frames = matrix.rows;
 
-    let params: Vec<DimQuantParams> = (0..dims)
-        .map(|d| DimQuantParams::from_column(matrix, d))
+    let mut mins = vec![f64::INFINITY; dims];
+    let mut maxs = vec![f64::NEG_INFINITY; dims];
+    for r in 0..frames {
+        let row_start = r * dims;
+        for d in 0..dims {
+            let value = matrix.data[row_start + d];
+            if value < mins[d] {
+                mins[d] = value;
+            }
+            if value > maxs[d] {
+                maxs[d] = value;
+            }
+        }
+    }
+    let params: Vec<DimQuantParams> = mins
+        .into_iter()
+        .zip(maxs)
+        .map(|(min_val, max_val)| DimQuantParams::from_min_max(min_val, max_val))
         .collect();
 
     let mut q = Vec::with_capacity(frames * dims);
@@ -333,32 +391,40 @@ fn build_matrix_quantized_delta(matrix: &MatrixF64) -> (Vec<DimQuantParams>, Vec
     let dims = matrix.cols;
     let frames = matrix.rows;
 
-    let mut delta = vec![0.0_f64; frames * dims];
-    for d in 0..dims {
-        let mut prev = 0.0_f64;
-        for r in 0..frames {
-            let idx = r * dims + d;
-            let cur = matrix.data[idx];
-            delta[idx] = if r == 0 { cur } else { cur - prev };
-            prev = cur;
+    let mut mins = vec![f64::INFINITY; dims];
+    let mut maxs = vec![f64::NEG_INFINITY; dims];
+    let mut prevs = vec![0.0_f64; dims];
+    for r in 0..frames {
+        let row_start = r * dims;
+        for d in 0..dims {
+            let cur = matrix.data[row_start + d];
+            let delta = if r == 0 { cur } else { cur - prevs[d] };
+            prevs[d] = cur;
+            if delta < mins[d] {
+                mins[d] = delta;
+            }
+            if delta > maxs[d] {
+                maxs[d] = delta;
+            }
         }
     }
-
-    let delta_matrix = MatrixF64 {
-        data: delta,
-        rows: frames,
-        cols: dims,
-    };
-
-    let params: Vec<DimQuantParams> = (0..dims)
-        .map(|d| DimQuantParams::from_column(&delta_matrix, d))
+    let params: Vec<DimQuantParams> = mins
+        .into_iter()
+        .zip(maxs)
+        .map(|(min_val, max_val)| DimQuantParams::from_min_max(min_val, max_val))
         .collect();
 
     let mut q = Vec::with_capacity(frames * dims);
     for r in 0..frames {
         let row_start = r * dims;
         for (d, param) in params.iter().enumerate().take(dims) {
-            q.push(param.quantize(delta_matrix.data[row_start + d]));
+            let cur = matrix.data[row_start + d];
+            let delta = if r == 0 {
+                cur
+            } else {
+                cur - matrix.data[row_start - dims + d]
+            };
+            q.push(param.quantize(delta));
         }
     }
     (params, q)
@@ -430,7 +496,7 @@ fn encode_matrix_adaptive(matrix: &MatrixF64, out: &mut Vec<u8>) {
 }
 
 #[inline]
-fn estimate_quant_stream_cost(q: &[i16]) -> f64 {
+fn estimate_quant_stream_cost(q: &[i16]) -> f32 {
     if q.is_empty() {
         return 0.0;
     }
@@ -453,7 +519,7 @@ fn estimate_quant_stream_cost(q: &[i16]) -> f64 {
         prev = v;
     }
 
-    q.len() as f64 - near_zero as f64 * 0.70 - repeats as f64 * 0.35 + sign_changes as f64 * 0.10
+    q.len() as f32 - near_zero as f32 * 0.70 - repeats as f32 * 0.35 + sign_changes as f32 * 0.10
 }
 
 fn decode_matrix_quantized(
@@ -464,8 +530,8 @@ fn decode_matrix_quantized(
 ) -> anyhow::Result<MatrixF64> {
     let mut params = Vec::with_capacity(dims);
     for _ in 0..dims {
-        let bias = read_f32(data, cursor)?;
-        let scale = read_f32(data, cursor)?;
+        let bias = read_f64(data, cursor)?;
+        let scale = read_f64(data, cursor)?;
         params.push(DimQuantParams { bias, scale });
     }
 
@@ -489,8 +555,8 @@ fn decode_matrix_quantized_delta(
 ) -> anyhow::Result<MatrixF64> {
     let mut params = Vec::with_capacity(dims);
     for _ in 0..dims {
-        let bias = read_f32(data, cursor)?;
-        let scale = read_f32(data, cursor)?;
+        let bias = read_f64(data, cursor)?;
+        let scale = read_f64(data, cursor)?;
         params.push(DimQuantParams { bias, scale });
     }
 
@@ -567,13 +633,13 @@ fn read_i16_slice(data: &[u8], cursor: &mut usize, count: usize) -> anyhow::Resu
 }
 
 #[inline]
-fn read_f32(data: &[u8], cursor: &mut usize) -> anyhow::Result<f32> {
-    if *cursor + 4 > data.len() {
+fn read_f64(data: &[u8], cursor: &mut usize) -> anyhow::Result<f64> {
+    if *cursor + 8 > data.len() {
         anyhow::bail!("unexpected end of payload at offset {}", *cursor);
     }
-    let bytes: [u8; 4] = data[*cursor..*cursor + 4].try_into().unwrap();
-    *cursor += 4;
-    Ok(f32::from_le_bytes(bytes))
+    let bytes: [u8; 8] = data[*cursor..*cursor + 8].try_into().unwrap();
+    *cursor += 8;
+    Ok(f64::from_le_bytes(bytes))
 }
 
 #[inline]
@@ -605,22 +671,7 @@ mod tests {
 
     #[test]
     fn payload_roundtrip() {
-        let f = WorldFeaturesOwned {
-            base_f0: 440.0,
-            f0: vec![440.0, 442.0, 445.0],
-            mgc: MatrixF64::from_vecs(&vec![
-                vec![0.1, 0.2, 0.3],
-                vec![0.15, 0.25, 0.35],
-                vec![0.2, 0.3, 0.4],
-            ])
-            .expect("mgc matrix should be valid"),
-            bap: MatrixF64::from_vecs(&vec![
-                vec![-0.1, -0.2],
-                vec![-0.15, -0.25],
-                vec![-0.2, -0.3],
-            ])
-            .expect("bap matrix should be valid"),
-        };
+        let f = regression_features();
 
         let p = encode_v5_payload(&f);
         let d = decode_v5_payload(&p, 3, 3, 2).unwrap();
@@ -632,8 +683,171 @@ mod tests {
     }
 
     #[test]
-    fn matrix_from_vecs_rejects_ragged_rows() {
-        let ragged = vec![vec![1.0, 2.0], vec![3.0]];
-        assert!(MatrixF64::from_vecs(&ragged).is_err());
+    fn payload_encoding_matches_reference_bytes() {
+        let f = regression_features();
+        assert_eq!(encode_v5_payload(&f), encode_v5_payload_reference(&f));
+    }
+
+    #[test]
+    fn payload_encoding_reference_covers_delta_matrix_mode() {
+        let f = WorldFeaturesOwned {
+            base_f0: 220.0,
+            f0: vec![220.0, 221.0, 222.0, 223.0, 224.0],
+            mgc: MatrixF64::from_vecs(&[
+                vec![1.00, -2.00, 3.00],
+                vec![1.01, -1.99, 3.01],
+                vec![1.02, -1.98, 3.02],
+                vec![1.03, -1.97, 3.03],
+                vec![1.04, -1.96, 3.04],
+            ])
+            .expect("mgc matrix should be valid"),
+            bap: MatrixF64::from_vecs(&[
+                vec![0.50, -0.50],
+                vec![0.51, -0.49],
+                vec![0.52, -0.48],
+                vec![0.53, -0.47],
+                vec![0.54, -0.46],
+            ])
+            .expect("bap matrix should be valid"),
+        };
+
+        let payload = encode_v5_payload(&f);
+        assert_eq!(payload, encode_v5_payload_reference(&f));
+        assert_eq!(payload[24 + f.f0.len() * std::mem::size_of::<i16>()], 1);
+    }
+
+    fn regression_features() -> WorldFeaturesOwned {
+        WorldFeaturesOwned {
+            base_f0: 440.0,
+            f0: vec![440.0, 442.0, 445.0],
+            mgc: MatrixF64::from_vecs(&[
+                vec![0.1, 0.2, 0.3],
+                vec![0.15, 0.25, 0.35],
+                vec![0.2, 0.3, 0.4],
+            ])
+            .expect("mgc matrix should be valid"),
+            bap: MatrixF64::from_vecs(&[vec![-0.1, -0.2], vec![-0.15, -0.25], vec![-0.2, -0.3]])
+                .expect("bap matrix should be valid"),
+        }
+    }
+
+    fn encode_v5_payload_reference(features: &WorldFeaturesOwned) -> Vec<u8> {
+        let frame_count = features.f0.len();
+        let mgc_dims = features.mgc.cols;
+        let bap_dims = features.bap.cols;
+        let mut out = Vec::with_capacity(v5_payload_upper_bound(frame_count, mgc_dims, bap_dims));
+
+        out.extend_from_slice(&features.base_f0.to_le_bytes());
+        let (f0_base, f0_scale, f0_deltas) = f0_delta_encode_i16_reference(&features.f0);
+        out.extend_from_slice(&f0_base.to_le_bytes());
+        out.extend_from_slice(&f0_scale.to_le_bytes());
+        for d in f0_deltas {
+            out.extend_from_slice(&d.to_le_bytes());
+        }
+
+        encode_matrix_adaptive_reference(&features.mgc, &mut out);
+        encode_matrix_adaptive_reference(&features.bap, &mut out);
+
+        out
+    }
+
+    fn f0_delta_encode_i16_reference(f0: &[f64]) -> (f64, f64, Vec<i16>) {
+        if f0.is_empty() {
+            return (0.0, 1.0, Vec::new());
+        }
+
+        let f0_base = f0[0];
+        let mut deltas = Vec::with_capacity(f0.len());
+        let mut prev = f0_base;
+        for &v in f0 {
+            let cur = v;
+            deltas.push(cur - prev);
+            prev = cur;
+        }
+
+        let max_abs = deltas.iter().fold(0.0_f64, |m, &v| m.max(v.abs()));
+        let scale = if max_abs < 1e-12 {
+            1.0
+        } else {
+            max_abs / 32767.0
+        };
+        let q = deltas
+            .into_iter()
+            .map(|d| (d / scale).round().clamp(-32768.0, 32767.0) as i16)
+            .collect();
+
+        (f0_base, scale, q)
+    }
+
+    fn encode_matrix_adaptive_reference(matrix: &MatrixF64, out: &mut Vec<u8>) {
+        const MODE_RAW: u8 = 0;
+        const MODE_DELTA: u8 = 1;
+
+        if matrix.rows <= 1 || matrix.cols == 0 {
+            out.push(MODE_RAW);
+            let (raw_params, raw_q) = build_matrix_quantized_raw(matrix);
+            encode_matrix_quantized_with_parts(out, &raw_params, &raw_q);
+            return;
+        }
+
+        let rough = matrix_delta_roughness(matrix);
+
+        if rough < 0.10 {
+            out.push(MODE_DELTA);
+            let (delta_params, delta_q) = build_matrix_quantized_delta_reference(matrix);
+            encode_matrix_quantized_with_parts(out, &delta_params, &delta_q);
+            return;
+        }
+
+        let (raw_params, raw_q) = build_matrix_quantized_raw(matrix);
+        let (delta_params, delta_q) = build_matrix_quantized_delta_reference(matrix);
+
+        let raw_cost = estimate_quant_stream_cost(&raw_q);
+        let delta_cost = estimate_quant_stream_cost(&delta_q);
+
+        if delta_cost < raw_cost * 0.96 {
+            out.push(MODE_DELTA);
+            encode_matrix_quantized_with_parts(out, &delta_params, &delta_q);
+        } else {
+            out.push(MODE_RAW);
+            encode_matrix_quantized_with_parts(out, &raw_params, &raw_q);
+        }
+    }
+
+    fn build_matrix_quantized_delta_reference(
+        matrix: &MatrixF64,
+    ) -> (Vec<DimQuantParams>, Vec<i16>) {
+        let dims = matrix.cols;
+        let frames = matrix.rows;
+
+        let mut delta = vec![0.0_f64; frames * dims];
+        for d in 0..dims {
+            let mut prev = 0.0_f64;
+            for r in 0..frames {
+                let idx = r * dims + d;
+                let cur = matrix.data[idx];
+                delta[idx] = if r == 0 { cur } else { cur - prev };
+                prev = cur;
+            }
+        }
+
+        let delta_matrix = MatrixF64 {
+            data: delta,
+            rows: frames,
+            cols: dims,
+        };
+
+        let params: Vec<DimQuantParams> = (0..dims)
+            .map(|d| DimQuantParams::from_column(&delta_matrix, d))
+            .collect();
+
+        let mut q = Vec::with_capacity(frames * dims);
+        for r in 0..frames {
+            let row_start = r * dims;
+            for (d, param) in params.iter().enumerate().take(dims) {
+                q.push(param.quantize(delta_matrix.data[row_start + d]));
+            }
+        }
+        (params, q)
     }
 }

@@ -21,6 +21,10 @@ if not exist "dist" mkdir "dist"
 copy /Y "target\release\organum-resampler.exe" "dist\" >nul
 copy /Y "target\release\organum-wavtool.exe" "dist\" >nul
 copy /Y "target\release\caching-tool.exe" "dist\" >nul
+copy /Y "LICENSE" "dist\" >nul
+copy /Y "THIRD_PARTY_NOTICES.md" "dist\" >nul
+if not exist "dist\licenses" mkdir "dist\licenses"
+copy /Y "licenses\*" "dist\licenses\" >nul
 
 if not exist "dist\organum.yaml" (
     echo feature_extension: "ogc" > "dist\organum.yaml"

@@ -13,6 +13,9 @@ mkdir -p dist
 cp target/release/organum-resampler dist/
 cp target/release/organum-wavtool dist/
 cp target/release/caching-tool dist/
+cp LICENSE THIRD_PARTY_NOTICES.md dist/
+mkdir -p dist/licenses
+cp licenses/* dist/licenses/
 
 if [ ! -f dist/organum.yaml ]; then
     cat > dist/organum.yaml <<EOF

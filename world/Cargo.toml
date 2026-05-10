@@ -1,0 +1,18 @@
+[package]
+name = "world"
+version = "0.1.0"
+authors = ["KYURAE KIM <mootomgame@gmail.com>"]
+edition = "2018"
+
+license = "MIT"
+description = "Organum native Rust implementation of WORLD vocoder algorithms."
+keywords = ["WORLD", "world", "vocoder"]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = []
+f64_ref = []
+native = []
+
+# Build profiles for this crate are configured from the workspace root
+# Cargo.toml. Cargo ignores profile sections in workspace member manifests.

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
@@ -22,7 +22,7 @@ pub struct OrganumConfig {
     pub sample_rate: u32,
 
     #[serde(default = "default_frame_period")]
-    pub frame_period: f64,
+    pub frame_period: f32,
 
     #[serde(default = "default_zstd_level")]
     pub zstd_compression_level: i32,
@@ -51,6 +51,9 @@ pub struct OrganumConfig {
     #[serde(default = "default_memory_cache_max_mb")]
     pub memory_cache_max_mb: usize,
 
+    #[serde(default = "default_ignore_cache_hash_verification")]
+    pub ignore_cache_hash_verification: bool,
+
     #[serde(default)]
     pub quality_preset: QualityPreset,
 }
@@ -61,7 +64,7 @@ fn default_feature_ext() -> String {
 fn default_sample_rate() -> u32 {
     44100
 }
-fn default_frame_period() -> f64 {
+fn default_frame_period() -> f32 {
     5.0
 }
 fn default_zstd_level() -> i32 {
@@ -89,7 +92,10 @@ fn default_memory_cache_enabled() -> bool {
     true
 }
 fn default_memory_cache_max_mb() -> usize {
-    256
+    512
+}
+fn default_ignore_cache_hash_verification() -> bool {
+    true
 }
 
 impl Default for OrganumConfig {
@@ -107,6 +113,7 @@ impl Default for OrganumConfig {
             output_dither: default_output_dither(),
             memory_cache_enabled: default_memory_cache_enabled(),
             memory_cache_max_mb: default_memory_cache_max_mb(),
+            ignore_cache_hash_verification: default_ignore_cache_hash_verification(),
             quality_preset: QualityPreset::default(),
         }
     }
@@ -114,59 +121,12 @@ impl Default for OrganumConfig {
 
 pub fn load_config() -> OrganumConfig {
     let config_path = get_config_path();
+    load_config_from_path(&config_path)
+}
 
+fn load_config_from_path(config_path: &Path) -> OrganumConfig {
     if !config_path.exists() {
-        let default_config = OrganumConfig::default();
-        let yaml_content = format!(
-            "# Organum Configuration File\n\
-             # You can edit these values to customize engine behavior.\n\n\
-             # Extension for cached feature files (default: ogc)\n\
-             feature_extension: \"{}\"\n\n\
-             # Processing sample rate in Hz (default: 44100)\n\
-             sample_rate: {}\n\n\
-             # WORLD frame period in ms (default: 5.0)\n\
-             frame_period: {:.1}\n\n\
-             # Zstd compression level for cache files (1-22, default: 3)\n\
-             zstd_compression_level: {}\n\n\
-             # Wavtool compressor threshold (default: 0.85)\n\
-             compressor_threshold: {:.2}\n\n\
-             # Wavtool compressor limit (default: 0.99)\n\
-             compressor_limit: {:.2}\n\n\
-             # Enable experimental GPU route for warp_spectrum (default: false)\n\
-             gpu_warp_enabled: {}\n\n\
-              # Minimum render frames before trying GPU warp route (default: disabled/CPU-only)\n\
-              gpu_warp_min_frames: {}\n\n\
-              # Minimum render frames before trying GPU aperiodicity route (default: disabled/CPU-only)\n\
-             gpu_ap_min_frames: {}\n\
-             # Enable output dithering/noise-shaping on WAV write (default: true)\n\
-             output_dither: {}\n\
-             # Enable in-process feature memory cache (default: true)\n\
-              memory_cache_enabled: {}\n\
-              # Maximum feature memory cache size in MiB (default: 256)\n\
-             memory_cache_max_mb: {}\n\
-             # Quality preset: classic, balanced, clear, breathy-safe (default: balanced)\n\
-             quality_preset: \"{}\"\n",
-            default_config.feature_extension,
-            default_config.sample_rate,
-            default_config.frame_period,
-            default_config.zstd_compression_level,
-            default_config.compressor_threshold,
-            default_config.compressor_limit,
-            default_config.gpu_warp_enabled,
-            default_config.gpu_warp_min_frames,
-            default_config.gpu_ap_min_frames,
-            default_config.output_dither,
-            default_config.memory_cache_enabled,
-            default_config.memory_cache_max_mb,
-            match default_config.quality_preset {
-                QualityPreset::Classic => "classic",
-                QualityPreset::Balanced => "balanced",
-                QualityPreset::Clear => "clear",
-                QualityPreset::BreathySafe => "breathy-safe",
-            },
-        );
-        let _ = fs::write(&config_path, yaml_content);
-        return default_config;
+        return OrganumConfig::default();
     }
 
     if let Ok(content) = fs::read_to_string(&config_path) {
@@ -175,6 +135,45 @@ pub fn load_config() -> OrganumConfig {
         }
     }
     OrganumConfig::default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn missing_config_uses_defaults_without_creating_file() {
+        let mut path = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        path.push(format!("organum-missing-config-{unique}.yaml"));
+
+        let config = load_config_from_path(&path);
+
+        assert_eq!(config.sample_rate, OrganumConfig::default().sample_rate);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn existing_config_file_is_still_loaded() {
+        let mut path = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        path.push(format!("organum-existing-config-{unique}.yaml"));
+        fs::write(&path, "sample_rate: 48000\nframe_period: 2.5\n")
+            .expect("test config should be writable");
+
+        let config = load_config_from_path(&path);
+
+        assert_eq!(config.sample_rate, 48000);
+        assert_eq!(config.frame_period, 2.5);
+        fs::remove_file(path).expect("test config should be removable");
+    }
 }
 
 static GLOBAL_CONFIG: OnceLock<OrganumConfig> = OnceLock::new();

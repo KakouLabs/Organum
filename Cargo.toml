@@ -1,13 +1,12 @@
 [workspace]
-members = [".", "caching-tool"]
+members = [".", "caching-tool", "world"]
 
 [workspace.dependencies]
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 hound = "3.5"
 rubato = "0.15"
-rsworld = "0.1.0"
-rsworld-sys = "0.1.0"
+world = { path = "world" }
 rayon = "1.11.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -20,6 +19,9 @@ bytemuck = { version = "1.16", features = ["derive"] }
 name = "organum"
 version = "0.0.7"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/KakouLabs/Organum"
+authors = ["KYURAE KIM <mootomgame@gmail.com>"]
 
 [features]
 default = []
@@ -34,8 +36,7 @@ rubato = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-rsworld = { workspace = true }
-rsworld-sys = { workspace = true }
+world = { workspace = true }
 rayon = { workspace = true }
 zstd = { workspace = true }
 getrandom = "0.4.2"
@@ -59,9 +60,36 @@ path = "src/bin/bench/warp-bench.rs"
 name = "ap-bench"
 path = "src/bin/bench/ap-bench.rs"
 
+[[bin]]
+name = "world-bench"
+path = "src/bin/bench/world-bench.rs"
+
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"
-strip = true
+debug = false
+strip = "symbols"
+debug-assertions = false
+overflow-checks = false
+incremental = false
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+
+[profile.release.package.world]
+opt-level = 3
+codegen-units = 1
+debug = false
+debug-assertions = false
+overflow-checks = false
+
+[profile.profiling.package.world]
+opt-level = 3
+codegen-units = 1
+debug = true
+debug-assertions = false
+overflow-checks = false

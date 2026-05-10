@@ -15,17 +15,15 @@ struct BenchCase {
     repeats: usize,
 }
 
-fn make_ap(frames: usize, bins: usize) -> Vec<Vec<f64>> {
-    (0..frames)
-        .map(|i| {
-            (0..bins)
-                .map(|b| {
-                    let x = (i as f64 * 0.0113) + (b as f64 * 0.0057);
-                    (0.45 + 0.35 * x.sin() + 0.20 * x.cos()).clamp(0.0, 1.0)
-                })
-                .collect::<Vec<f64>>()
-        })
-        .collect()
+fn make_ap(frames: usize, bins: usize) -> Vec<f32> {
+    let mut data = Vec::with_capacity(frames * bins);
+    for i in 0..frames {
+        for b in 0..bins {
+            let x = (i as f32 * 0.0113) + (b as f32 * 0.0057);
+            data.push((0.45 + 0.35 * x.sin() + 0.20 * x.cos()).clamp(0.0, 1.0));
+        }
+    }
+    data
 }
 
 fn make_vuv(frames: usize) -> Vec<u8> {
@@ -93,13 +91,13 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
     }
 
     for _ in 0..case.warmup {
-        for (dst, src) in work.iter_mut().zip(original.iter()) {
-            dst.copy_from_slice(src);
-        }
+        work.copy_from_slice(&original);
 
         if matches!(chosen, WarpBackend::Gpu) {
             let _ = try_apply_aperiodicity_gpu_batch(
-                work.as_mut_slice(),
+                &mut work,
+                case.frames,
+                case.bins,
                 &vuv,
                 onset_fadein_frames,
                 h_factor,
@@ -110,7 +108,9 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
             );
         } else {
             apply_aperiodicity_cpu_batch(
-                work.as_mut_slice(),
+                &mut work,
+                case.frames,
+                case.bins,
                 &vuv,
                 onset_fadein_frames,
                 h_factor,
@@ -127,13 +127,13 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
     for _ in 0..case.repeats {
         let start = Instant::now();
         for _ in 0..case.iterations {
-            for (dst, src) in work.iter_mut().zip(original.iter()) {
-                dst.copy_from_slice(src);
-            }
+            work.copy_from_slice(&original);
 
             if matches!(chosen, WarpBackend::Gpu) {
                 if let Err(e) = try_apply_aperiodicity_gpu_batch(
-                    work.as_mut_slice(),
+                    &mut work,
+                    case.frames,
+                    case.bins,
                     &vuv,
                     onset_fadein_frames,
                     h_factor,
@@ -147,7 +147,9 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                         case.name, chosen, e
                     );
                     apply_aperiodicity_cpu_batch(
-                        work.as_mut_slice(),
+                        &mut work,
+                        case.frames,
+                        case.bins,
                         &vuv,
                         onset_fadein_frames,
                         h_factor,
@@ -159,7 +161,9 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
                 }
             } else {
                 apply_aperiodicity_cpu_batch(
-                    work.as_mut_slice(),
+                    &mut work,
+                    case.frames,
+                    case.bins,
                     &vuv,
                     onset_fadein_frames,
                     h_factor,

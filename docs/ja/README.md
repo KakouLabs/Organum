@@ -33,7 +33,7 @@ OrganumはUTAUおよびOpenUtau用のリサンプラーエンジンです。WORL
 1. [Releases](https://github.com/KakouLabs/Organum/releases)ページからバイナリをダウンロードします。
    - 各プラットフォーム向けに`*-cpu`（標準CPUビルド）と`*-cpu-gpu`（`gpu-warp`機能を含む）アーカイブが提供されています。
    - `organum-wavtool`は現在Windows版のみ提供されています。Linux/macOS版アーカイブには`organum-resampler`と`caching-tool`のみ含まれます。
-   - 最新リリースにはベン치마크의 요약/로그 아셋이 함께 포함될 수 있습니다.
+   - 最新リリースにはベンチマークの概要やログアセットが含まれる場合があります。
 2. OpenUtauの`Resamplers`ディレクトリに配置します。
 
 ## 使い方
@@ -75,7 +75,7 @@ wine organum-wavtool.exe --log-format json ...
 
 ## 設定
 
-実行時に`organum.yaml`がない場合、デフォルト値で自動生成されます.
+実行時に`organum.yaml`がない場合、ファイルは生成せず、組み込みのデフォルト値ですぐに実行されます。設定を変更するには、実行ファイルと同じディレクトリに`organum.yaml`を作成してください。
 
 ```yaml
 feature_extension: "ogc"
@@ -92,11 +92,12 @@ gpu_warp_min_frames: 2048
 
 詳細は [Configuration Guide](CONFIGURATION.md) を参照してください。
 
-SIMD検証/ベンチマークガイドは [SIMD Validation](SIMD_VALIDATION.md) を参照してください。
+SIMD検証/ベンチマークガイドは [SIMD Validation](SIMD_VALIDATION.md)、flamegraphによるボトルネック分析は [Profiling](PROFILING.md) を参照してください。
 
 ## ビルド
 
 Organumは単一のリリースプロファイル（`release`）を使用します。
+OrganumはRust-native WORLD経路（`world::native`）を使用します。
 
 ```bash
 cargo build --workspace --release
@@ -112,7 +113,7 @@ cargo build --workspace --release
 
 ## 比較
 
-重音テトUTAU音源基準、約500msセグメント의 처리 시간.
+重音テトUTAU音源基準、約500msセグメントの処理時間。
 
 | エンジン | 言語 | マルチスレッド | 平均時間 |
 | :--- | :--- | :--- | :--- |
@@ -134,4 +135,6 @@ cargo build --workspace --release
 
 ## ライセンス
 
-MIT
+OrganumはMIT Licenseで配布されています。詳細は [LICENSE](../../LICENSE) を参照してください。
+
+Rust-native WORLD実装には、帰属表示および再配布要件に対応するため、元のWORLD BSD-style noticeを同梱しています。詳細は [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) および `licenses/WORLD_BSD-3-Clause.txt` を参照してください。

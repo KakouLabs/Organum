@@ -2,6 +2,9 @@
 name = "caching-tool"
 version = "0.0.7"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/KakouLabs/Organum"
+authors = ["KYURAE KIM <mootomgame@gmail.com>"]
 
 [dependencies]
 anyhow = { workspace = true }

@@ -1,0 +1,14 @@
+pub(super) const FLOOR_F0: f32 = 71.0;
+pub(super) const CEIL_F0: f32 = 800.0;
+pub(super) const DEFAULT_F0: f32 = 500.0;
+pub(super) const CHEAPTRICK_Q1: f32 = -0.15;
+pub(super) const D4C_THRESHOLD: f32 = 0.85;
+pub(super) const FLOOR_F0_D4C: f32 = 47.0;
+pub(super) const SAFE_GUARD_MINIMUM: f32 = 1.0e-12;
+pub(super) const EPSILON_FOR_CHEAPTRICK: f32 = 2.220_446e-16;
+pub(super) const FREQUENCY_INTERVAL: f32 = 3000.0;
+pub(super) const UPPER_LIMIT: f32 = 15000.0;
+pub(super) const MEL_M0: f32 = 1127.01048;
+pub(super) const MEL_F0: f32 = 700.0;
+pub(super) const FLOOR_FREQUENCY: f32 = 40.0;
+pub(super) const CEIL_FREQUENCY: f32 = 20000.0;

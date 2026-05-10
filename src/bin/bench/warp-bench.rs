@@ -9,23 +9,21 @@ struct BenchCase {
     name: &'static str,
     frames: usize,
     bins: usize,
-    factor: f64,
+    factor: f32,
     warmup: usize,
     iterations: usize,
     repeats: usize,
 }
 
-fn make_spectrum(frames: usize, bins: usize) -> Vec<Vec<f64>> {
-    (0..frames)
-        .map(|i| {
-            (0..bins)
-                .map(|b| {
-                    let x = (i as f64 * 0.017) + (b as f64 * 0.0031);
-                    (x.sin().abs() + 1e-6) * (1.0 + (b as f64 / bins as f64) * 0.2)
-                })
-                .collect::<Vec<f64>>()
-        })
-        .collect()
+fn make_spectrum(frames: usize, bins: usize) -> Vec<f32> {
+    let mut data = Vec::with_capacity(frames * bins);
+    for i in 0..frames {
+        for b in 0..bins {
+            let x = (i as f32 * 0.017) + (b as f32 * 0.0031);
+            data.push((x.sin().abs() + 1e-6) * (1.0 + (b as f32 / bins as f32) * 0.2));
+        }
+    }
+    data
 }
 
 struct BenchResult {
@@ -83,10 +81,14 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
     }
 
     for _ in 0..case.warmup {
-        for (dst, src) in work.iter_mut().zip(original.iter()) {
-            dst.copy_from_slice(src);
-        }
-        let _ = try_apply_warp_batch_with_backend(work.as_mut_slice(), &lut, chosen);
+        work.copy_from_slice(&original);
+        let _ = try_apply_warp_batch_with_backend(
+            work.as_mut_slice(),
+            case.frames,
+            case.bins,
+            &lut,
+            chosen,
+        );
     }
 
     let mut times = Vec::with_capacity(case.repeats);
@@ -94,16 +96,20 @@ fn run_case(case: BenchCase, backend: WarpBackend) -> Option<BenchResult> {
     for _ in 0..case.repeats {
         let start = Instant::now();
         for _ in 0..case.iterations {
-            for (dst, src) in work.iter_mut().zip(original.iter()) {
-                dst.copy_from_slice(src);
-            }
+            work.copy_from_slice(&original);
 
-            if let Err(e) = try_apply_warp_batch_with_backend(work.as_mut_slice(), &lut, chosen) {
+            if let Err(e) = try_apply_warp_batch_with_backend(
+                work.as_mut_slice(),
+                case.frames,
+                case.bins,
+                &lut,
+                chosen,
+            ) {
                 eprintln!(
                     "[{:<11} {:?}] gpu batch failed, fallback to cpu: {}",
                     case.name, chosen, e
                 );
-                for frame in work.iter_mut() {
+                for frame in work.chunks_exact_mut(case.bins) {
                     lut.apply(frame);
                 }
             }

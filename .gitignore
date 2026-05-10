@@ -1,8 +1,8 @@
 /target
 *.pdb
 **/*.rs.bk
-Cargo.lock
-dist
+dist/
+dist-gpu/
 /bench-results/
 /simd-bench/
 /simd-validation/
@@ -12,3 +12,9 @@ __pycache__
 .pytest_cache/
 audios/simd_test
 samples.txt
+bench_env.txt
+perf.data
+perf_report.txt
+world_bench_*.txt
+native-world-bench-*.txt
+native-world-bench-*.svg

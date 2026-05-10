@@ -59,7 +59,7 @@ fn matrix_from_vecs_rejects_ragged_input() {
 fn config_defaults_include_memory_cache_settings() {
     let config = OrganumConfig::default();
     assert!(config.memory_cache_enabled);
-    assert_eq!(config.memory_cache_max_mb, 256);
+    assert_eq!(config.memory_cache_max_mb, 512);
     assert!(config.output_dither);
     assert_eq!(format!("{:?}", config.quality_preset), "Balanced");
 }

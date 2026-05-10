@@ -16,15 +16,15 @@ fn analyze_i16_samples(samples: &[i16]) -> (f32, f32) {
         return (0.0, 0.0);
     }
 
-    let mut sq_sum = 0.0_f64;
+    let mut sq_sum = 0.0_f32;
     let mut peak = 0.0_f32;
     for &s in samples {
         let v = s as f32 / 32768.0;
-        sq_sum += (v as f64) * (v as f64);
+        sq_sum += v * v;
         peak = peak.max(v.abs());
     }
 
-    let rms = (sq_sum / samples.len() as f64).sqrt() as f32;
+    let rms = (sq_sum / samples.len() as f32).sqrt();
     (rms, peak)
 }
 

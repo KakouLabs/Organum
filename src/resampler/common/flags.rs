@@ -1,17 +1,20 @@
-pub struct ParsedFlags {
-    pub g: f64,
-    pub b: f64,
-    pub m: f64,
-    pub t: f64,
-    pub a: f64,
-    pub p: f64,
-    pub c: f64,
-    pub h: f64,
-    pub d: f64,
-    pub f: f64,
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct OrganumFlags {
+    pub g: f32,
+    pub b: f32,
+    pub m: f32,
+    pub t: f32,
+    pub a: f32,
+    pub p: f32,
+    pub c: f32,
+    pub h: f32,
+    pub d: f32,
+    pub f: f32,
 }
 
-impl Default for ParsedFlags {
+impl Default for OrganumFlags {
     fn default() -> Self {
         Self {
             g: 0.0,
@@ -27,6 +30,8 @@ impl Default for ParsedFlags {
         }
     }
 }
+
+pub type ParsedFlags = OrganumFlags;
 
 pub fn parse_flags(s: &str) -> ParsedFlags {
     let mut flags = ParsedFlags::default();
@@ -55,7 +60,7 @@ pub fn parse_flags(s: &str) -> ParsedFlags {
             }
             if len > 0 {
                 if let Ok(val_str) = std::str::from_utf8(&buf[..len]) {
-                    if let Ok(val) = val_str.parse::<f64>() {
+                    if let Ok(val) = val_str.parse::<f32>() {
                         match c {
                             'g' | 'G' => flags.g = val,
                             'B' | 'b' => flags.b = val,

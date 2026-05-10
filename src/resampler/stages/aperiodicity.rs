@@ -1,17 +1,17 @@
 use crate::resampler::{device, device::Device, synthesis};
 
 pub struct AperiodicityStageParams {
-    pub scaled_cons_sec: f64,
-    pub fps: f64,
-    pub h_flag: f64,
-    pub c_flag: f64,
-    pub b_flag: f64,
+    pub scaled_cons_sec: f32,
+    pub fps: f32,
+    pub h_flag: f32,
+    pub c_flag: f32,
+    pub b_flag: f32,
     pub device: Device,
     pub quality_preset: crate::config::QualityPreset,
 }
 
 pub fn apply_aperiodicity_mods(
-    ap_render: &mut [Vec<f64>],
+    ap_render: &mut world::native::MatrixF32,
     vuv_render: &[u8],
     params: &AperiodicityStageParams,
 ) {
@@ -45,14 +45,19 @@ pub fn apply_aperiodicity_mods(
     let quality_profile = synthesis::QualityProfile::from_preset(quality_preset);
 
     let onset_fadein_frames = if scaled_cons_sec > 0.0 {
-        ((0.050_f64).min(scaled_cons_sec * 0.25) * fps).round() as usize
+        ((0.050_f32).min(scaled_cons_sec * 0.25) * fps).round() as usize
     } else {
         0
     };
 
-    if matches!(device, Device::Gpu) && ap_render.len() >= GPU_AP_MIN_SAFE_FRAMES {
+    let rows = ap_render.rows();
+    let cols = ap_render.cols();
+
+    if matches!(device, Device::Gpu) && rows >= GPU_AP_MIN_SAFE_FRAMES {
         match synthesis::try_apply_aperiodicity_gpu_batch(
-            ap_render,
+            ap_render.as_mut_slice(),
+            rows,
+            cols,
             vuv_render,
             onset_fadein_frames,
             h_factor,
@@ -70,7 +75,9 @@ pub fn apply_aperiodicity_mods(
     }
 
     synthesis::apply_aperiodicity_cpu_batch(
-        ap_render,
+        ap_render.as_mut_slice(),
+        rows,
+        cols,
         vuv_render,
         onset_fadein_frames,
         h_factor,

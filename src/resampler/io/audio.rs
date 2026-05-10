@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::path::Path;
 
-pub fn read_audio(path: &Path, target_sr: u32) -> Result<Vec<f64>> {
+pub fn read_audio(path: &Path, target_sr: u32) -> Result<Vec<f32>> {
     let (mut audio, source_sr) = crate::utils::decode_wav_samples(path)?;
 
     if source_sr != target_sr {
@@ -10,7 +10,7 @@ pub fn read_audio(path: &Path, target_sr: u32) -> Result<Vec<f64>> {
     Ok(audio)
 }
 
-pub fn resample_audio(audio: &[f64], in_fs: u32, out_fs: u32) -> Result<Vec<f64>> {
+pub fn resample_audio(audio: &[f32], in_fs: u32, out_fs: u32) -> Result<Vec<f32>> {
     use rubato::{
         Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
     };
@@ -27,7 +27,7 @@ pub fn resample_audio(audio: &[f64], in_fs: u32, out_fs: u32) -> Result<Vec<f64>
         window: WindowFunction::Hann,
     };
 
-    let mut resampler = SincFixedIn::<f64>::new(ratio, 2.0, params, 1024, 1)?;
+    let mut resampler = SincFixedIn::<f32>::new(ratio, 2.0, params, 1024, 1)?;
     let mut input = resampler.input_buffer_allocate(true);
     let mut output = resampler.output_buffer_allocate(true);
     let mut offset = 0usize;
@@ -51,7 +51,7 @@ pub fn resample_audio(audio: &[f64], in_fs: u32, out_fs: u32) -> Result<Vec<f64>
 
 pub fn write_audio(
     path: &Path,
-    audio: &[f64],
+    audio: &[f32],
     sample_rate: u32,
     output_dither: bool,
 ) -> Result<()> {
@@ -66,19 +66,19 @@ pub fn write_audio(
     let mut writer = hound::WavWriter::new(buf_writer, spec)?;
     const WRITE_CHUNK_SAMPLES: usize = 8192;
     if output_dither {
-        let mut error_accum = 0.0_f64;
+        let mut error_accum = 0.0_f32;
         let mut prng = crate::utils::XorShift32::new(0x12345678);
         for chunk in audio.chunks(WRITE_CHUNK_SAMPLES) {
             let mut sample_writer = writer.get_i16_writer(chunk.len() as u32);
             for &x in chunk {
                 let scaled = x * 32767.0 + error_accum;
 
-                let r1 = prng.next_f32() as f64;
-                let r2 = prng.next_f32() as f64;
+                let r1 = prng.next_f32();
+                let r2 = prng.next_f32();
                 let dither = r1 + r2;
 
                 let q = (scaled + dither).round().clamp(-32768.0, 32767.0) as i16;
-                error_accum = scaled - q as f64;
+                error_accum = scaled - q as f32;
                 sample_writer.write_sample(q);
             }
             sample_writer.flush()?;

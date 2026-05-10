@@ -7,7 +7,7 @@ use std::time::Instant;
 use crate::resampler::{
     common::utils::to_feature_path,
     io::audio::read_audio,
-    io::features::{generate_features, read_features, write_features},
+    io::features::{generate_features, read_features_owned, write_features},
     types::WorldFeaturesOwned,
 };
 
@@ -135,10 +135,10 @@ pub fn load_features_cached(
     }
 
     if feature_path.exists() {
-        match read_features(feature_path, config) {
+        match read_features_owned(feature_path, input_path, config) {
             Ok(features) => {
                 tracing::debug!("disk cache hit: {:?}", feature_path);
-                let owned = Arc::new(WorldFeaturesOwned::from_world_features(&features));
+                let owned = Arc::new(features);
                 if config.memory_cache_enabled {
                     put_cached_features(feature_path.to_path_buf(), Arc::clone(&owned));
                 }
@@ -160,6 +160,7 @@ pub fn load_features_cached(
     let features = generate_features(audio, config.sample_rate, config.frame_period)?;
     let _ = write_features(
         feature_path,
+        input_path,
         &features,
         config.zstd_compression_level,
         config,

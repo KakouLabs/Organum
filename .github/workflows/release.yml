@@ -92,6 +92,9 @@ jobs:
             cp target/release/organum-wavtool${{ matrix.asset_extension }} artifacts/
           fi
           cp target/release/caching-tool${{ matrix.asset_extension }} artifacts/
+          cp LICENSE THIRD_PARTY_NOTICES.md artifacts/
+          mkdir -p artifacts/licenses
+          cp licenses/* artifacts/licenses/
           printf "%s\n" "${{ matrix.variant }}" > artifacts/BUILD_VARIANT.txt
 
       - name: Archive (Windows)

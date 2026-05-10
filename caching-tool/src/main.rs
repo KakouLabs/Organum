@@ -93,6 +93,7 @@ fn main() -> Result<()> {
                 )?;
                 organum::resampler::write_features(
                     &organum::resampler::to_feature_path(wav_path, &config.feature_extension),
+                    wav_path,
                     &features,
                     config.zstd_compression_level,
                     &config,

@@ -1,6 +1,6 @@
 # Configuration
 
-Organum은 YAML 설정 파일로 동작을 커스터마이즈할 수 있습니다. 첫 실행 시 `organum.yaml`이 실행 파일과 같은 디렉토리에 자동 생성됩니다.
+Organum은 YAML 설정 파일로 동작을 커스터마이즈할 수 있습니다. `organum.yaml`이 없으면 파일을 생성하지 않고 내장 기본값으로 즉시 실행됩니다. 설정을 바꾸려면 실행 파일과 같은 디렉토리에 `organum.yaml`을 직접 만들면 됩니다.
 
 [한국어](CONFIGURATION.md) | [English](en/CONFIGURATION.md) | [日本語](ja/CONFIGURATION.md)
 
@@ -17,7 +17,7 @@ Organum은 YAML 설정 파일로 동작을 커스터마이즈할 수 있습니�
 | `gpu_ap_min_frames` | integer | `usize::MAX` | GPU aperiodicity 경로를 시도할 최소 렌더 프레임 길이 |
 | `output_dither` | boolean | `true` | WAV 출력 시 디더링/노이즈 쉐이핑 사용 여부 |
 | `memory_cache_enabled` | boolean | `true` | 프로세스 내 feature 메모리 캐시 사용 여부 |
-| `memory_cache_max_mb` | integer | `256` | 프로세스 내 feature 메모리 캐시 최대 크기(MiB) |
+| `memory_cache_max_mb` | integer | `512` | 프로세스 내 feature 메모리 캐시 최대 크기(MiB) |
 | `quality_preset` | string | `"balanced"` | 음질 보정 프리셋 (`classic`, `balanced`, `clear`, `breathy-safe`) |
 
 > 참고: GPU 경로는 실험적 기능이며, 현재 구현 특성상(업로드/리드백 오버헤드) 일반적인 렌더링에서는 CPU(SIMD/병렬)보다 느릴 수 있습니다. 기본값(`false`) 유지 권장.
@@ -34,7 +34,7 @@ gpu_warp_min_frames: 18446744073709551615
 gpu_ap_min_frames: 18446744073709551615
 output_dither: true
 memory_cache_enabled: true
-memory_cache_max_mb: 256
+memory_cache_max_mb: 512
 quality_preset: "balanced"
 ```
 

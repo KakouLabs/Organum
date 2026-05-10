@@ -1,6 +1,6 @@
 # 設定
 
-OrganumはYAML設定ファイルを使用して動作をカスタマイズできます。初回実行時に、実行ファイルと同じディレクトリに`organum.yaml`が自動生成されます。
+OrganumはYAML設定ファイルを使用して動作をカスタマイズできます。`organum.yaml`がない場合、ファイルは生成せず、組み込みのデフォルト値ですぐに実行されます。設定を変更するには、実行ファイルと同じディレクトリに`organum.yaml`を作成してください。
 
 [한국어](../CONFIGURATION.md) | [English](../en/CONFIGURATION.md) | [日本語](CONFIGURATION.md)
 

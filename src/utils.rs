@@ -67,21 +67,21 @@ pub fn note_to_midi(note: &str) -> i32 {
 
 /// MIDI -> Hz. `440 * 2^((midi - 69) / 12)`
 #[inline(always)]
-pub fn midi_to_hz(midi: f64) -> f64 {
+pub fn midi_to_hz(midi: f32) -> f32 {
     440.0 * ((midi - 69.0) / 12.0).exp2()
 }
 
-pub fn note_to_freq(note: &str) -> f64 {
-    midi_to_hz(note_to_midi(note) as f64)
+pub fn note_to_freq(note: &str) -> f32 {
+    midi_to_hz(note_to_midi(note) as f32)
 }
 
-pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u32)> {
+pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f32>, u32)> {
     use anyhow::Context;
 
     let mut reader =
         hound::WavReader::open(path).context(format!("Failed to open WAV: {:?}", path))?;
     let spec = reader.spec();
-    let max_val: f64 = match spec.bits_per_sample {
+    let max_val: f32 = match spec.bits_per_sample {
         8 => 128.0,
         16 => 32768.0,
         24 => 8388608.0,
@@ -92,7 +92,7 @@ pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u
     let total_samples = reader.len() as usize;
     let estimated_frames = total_samples / channels.max(1);
 
-    let mut mono: Vec<f64> = Vec::with_capacity(estimated_frames);
+    let mut mono: Vec<f32> = Vec::with_capacity(estimated_frames);
     let mut corrupt_samples = 0usize;
     let mut first_corrupt_index = None;
 
@@ -105,11 +105,11 @@ pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u
                 tracing::debug!("Corrupted sample at index {} in {:?}: {}", i, path, e);
                 0
             });
-            mono.push(sample as f64 / max_val);
+            mono.push(sample as f32 / max_val);
         }
     } else {
-        let inv_ch = 1.0 / (channels as f64 * max_val);
-        let mut ch_sum: f64 = 0.0;
+        let inv_ch = 1.0 / (channels as f32 * max_val);
+        let mut ch_sum: f32 = 0.0;
         let mut ch_idx: usize = 0;
 
         for (i, s) in reader.samples::<i32>().enumerate() {
@@ -119,7 +119,7 @@ pub fn decode_wav_samples(path: &std::path::Path) -> anyhow::Result<(Vec<f64>, u
                 tracing::debug!("Corrupted sample at index {} in {:?}: {}", i, path, e);
                 0
             });
-            ch_sum += sample as f64;
+            ch_sum += sample as f32;
             ch_idx += 1;
 
             if ch_idx == channels {
@@ -304,12 +304,12 @@ mod tests {
     #[test]
     fn test_midi_to_hz() {
         assert!((midi_to_hz(69.0) - 440.0).abs() < 1e-5);
-        assert!((midi_to_hz(60.0) - 261.625565).abs() < 1e-4);
+        assert!((midi_to_hz(60.0) - 261.625_58).abs() < 1e-4);
     }
 
     #[test]
     fn test_note_to_freq() {
         assert!((note_to_freq("A4") - 440.0).abs() < 1e-5);
-        assert!((note_to_freq("C4") - 261.625565).abs() < 1e-4);
+        assert!((note_to_freq("C4") - 261.625_58).abs() < 1e-4);
     }
 }

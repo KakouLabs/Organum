@@ -75,7 +75,7 @@ Pre-analyzing voicebanks with the caching tool skips the analysis step during re
 
 ## Configuration
 
-If `organum.yaml` is missing during execution, it's automatically generated with default values.
+If `organum.yaml` is missing during execution, Organum runs immediately with built-in defaults and does not create a file. To customize settings, create `organum.yaml` next to the executable.
 
 ```yaml
 feature_extension: "ogc"
@@ -92,11 +92,12 @@ The cache is automatically invalidated and regenerated if the format/schema/engi
 
 See the [Configuration Guide](CONFIGURATION.md) for details.
 
-See [SIMD Validation](SIMD_VALIDATION.md) for the SIMD validation/benchmark guide.
+See [SIMD Validation](SIMD_VALIDATION.md) for the SIMD validation/benchmark guide, and [Profiling](PROFILING.md) for flamegraph-based bottleneck analysis.
 
 ## Build
 
 Organum uses a single release profile (`release`).
+Organum uses the Rust-native WORLD route (`world::native`).
 
 ```bash
 cargo build --workspace --release
@@ -134,4 +135,6 @@ Rendering parameters can be controlled via flags. `P` and `y` are identical Peak
 
 ## License
 
-MIT
+Organum is distributed under the MIT License. See [LICENSE](../../LICENSE).
+
+The Rust-native WORLD implementation is shipped with the original WORLD BSD-style notice for attribution and redistribution hygiene. See [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and `licenses/WORLD_BSD-3-Clause.txt`.

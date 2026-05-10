@@ -1,8 +1,8 @@
 use rayon::prelude::*;
 use std::cell::RefCell;
-use std::rc::Rc;
 #[cfg(feature = "gpu-warp")]
 use std::collections::VecDeque;
+use std::rc::Rc;
 #[cfg(not(feature = "gpu-warp"))]
 use std::sync::atomic::Ordering;
 #[cfg(feature = "gpu-warp")]
@@ -16,27 +16,31 @@ use std::arch::x86::*;
 use std::arch::x86_64::*;
 
 pub fn synthesize(
-    f0: &Vec<f64>,
-    sp: &mut Vec<Vec<f64>>,
-    ap: &mut Vec<Vec<f64>>,
+    f0: &[f32],
+    sp: &world::native::MatrixF32,
+    ap: &world::native::MatrixF32,
     sample_rate: u32,
-    frame_period: f64,
-) -> Vec<f64> {
-    rsworld::synthesis(f0, sp, ap, frame_period, sample_rate as i32)
+    frame_period: f32,
+) -> Vec<f32> {
+    let synthesizer = world::native::AcousticSynthesizer::new();
+    synthesizer.synthesize(f0, sp, ap, frame_period, sample_rate as i32)
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct QualityProfile {
-    pub high_pitch_warp_relax: f64,
-    pub high_pitch_tilt_cap: f64,
-    pub tilt_strength: f64,
-    pub presence_max_gain: f64,
-    pub unvoiced_spike_threshold: f64,
-    pub unvoiced_spike_blend: f64,
-    pub breath_floor_base: f64,
-    pub breath_floor_onset_boost: f64,
-    pub voiced_high_cap_base: f64,
-    pub voiced_high_cap_onset_drop: f64,
+    pub high_pitch_warp_relax: f32,
+    pub high_pitch_tilt_cap: f32,
+    pub tilt_strength: f32,
+    pub presence_max_gain: f32,
+    pub unvoiced_spike_threshold: f32,
+    pub unvoiced_spike_blend: f32,
+    pub breath_floor_base: f32,
+    pub breath_floor_onset_boost: f32,
+    pub voiced_high_cap_base: f32,
+    pub voiced_high_cap_onset_drop: f32,
+    pub temporal_ap_smoothing: f32,
+    pub voiced_temporal_ap_smoothing: f32,
+    pub short_note_onset_scale: f32,
 }
 
 impl QualityProfile {
@@ -53,6 +57,9 @@ impl QualityProfile {
                 breath_floor_onset_boost: 0.0,
                 voiced_high_cap_base: 1.0,
                 voiced_high_cap_onset_drop: 0.0,
+                temporal_ap_smoothing: 0.0,
+                voiced_temporal_ap_smoothing: 0.0,
+                short_note_onset_scale: 1.0,
             },
             crate::config::QualityPreset::Balanced => Self {
                 high_pitch_warp_relax: 0.35,
@@ -65,6 +72,9 @@ impl QualityProfile {
                 breath_floor_onset_boost: 0.14,
                 voiced_high_cap_base: 0.985,
                 voiced_high_cap_onset_drop: 0.08,
+                temporal_ap_smoothing: 0.16,
+                voiced_temporal_ap_smoothing: 0.06,
+                short_note_onset_scale: 0.75,
             },
             crate::config::QualityPreset::Clear => Self {
                 high_pitch_warp_relax: 0.45,
@@ -77,6 +87,9 @@ impl QualityProfile {
                 breath_floor_onset_boost: 0.12,
                 voiced_high_cap_base: 0.97,
                 voiced_high_cap_onset_drop: 0.10,
+                temporal_ap_smoothing: 0.12,
+                voiced_temporal_ap_smoothing: 0.05,
+                short_note_onset_scale: 0.8,
             },
             crate::config::QualityPreset::BreathySafe => Self {
                 high_pitch_warp_relax: 0.3,
@@ -89,6 +102,9 @@ impl QualityProfile {
                 breath_floor_onset_boost: 0.16,
                 voiced_high_cap_base: 0.975,
                 voiced_high_cap_onset_drop: 0.08,
+                temporal_ap_smoothing: 0.22,
+                voiced_temporal_ap_smoothing: 0.08,
+                short_note_onset_scale: 0.65,
             },
         }
     }
@@ -161,7 +177,7 @@ fn ap_simd_enabled() -> bool {
 
 #[inline]
 fn apply_aperiodicity_frame_scalar(
-    frame: &mut [f64],
+    frame: &mut [f32],
     is_voiced: bool,
     params: CpuAperiodicityParams,
 ) {
@@ -202,64 +218,7 @@ fn apply_aperiodicity_frame_scalar(
 }
 
 #[inline]
-fn apply_aperiodicity_frame_scalar_f32(
-    frame: &mut [f32],
-    is_voiced: bool,
-    params: CpuAperiodicityParamsF32,
-) {
-    let h_factor = params.h_factor;
-    let c_factor = params.c_factor;
-    let breathiness_factor = params.breathiness_factor;
-    let b_scale = params.b_scale;
-    let onset_breath_factor = params.onset_breath_factor;
-
-    for a in frame.iter_mut() {
-        if is_voiced {
-            if h_factor > 0.0 {
-                *a *= 1.0 - h_factor;
-            }
-        } else if c_factor > 0.0 {
-            *a *= 1.0 - c_factor;
-        }
-
-        if breathiness_factor > 0.0 {
-            *a += (1.0 - *a) * breathiness_factor;
-        } else if breathiness_factor < 0.0 {
-            *a *= b_scale;
-        }
-
-        if onset_breath_factor > 0.0 {
-            *a += (1.0 - *a) * onset_breath_factor;
-        }
-
-        *a = a.clamp(0.0, 1.0);
-    }
-
-    stabilize_aperiodicity_frame_f32(
-        frame,
-        is_voiced,
-        onset_breath_factor,
-        QualityProfile::from_preset(crate::config::QualityPreset::Balanced),
-    );
-}
-
-#[inline]
-fn smooth_spiky_bins(frame: &mut [f64], start: usize, spike_threshold: f64, blend: f64) {
-    if frame.len() < 3 || start + 1 >= frame.len() {
-        return;
-    }
-
-    for i in (start + 1)..(frame.len() - 1) {
-        let neighbor_avg = 0.5 * (frame[i - 1] + frame[i + 1]);
-        let spike = frame[i] - neighbor_avg;
-        if frame[i] > 0.85 && spike > spike_threshold {
-            frame[i] = (frame[i] * (1.0 - blend) + neighbor_avg * blend).clamp(0.0, 1.0);
-        }
-    }
-}
-
-#[inline]
-fn smooth_spiky_bins_f32(frame: &mut [f32], start: usize, spike_threshold: f32, blend: f32) {
+fn smooth_spiky_bins(frame: &mut [f32], start: usize, spike_threshold: f32, blend: f32) {
     if frame.len() < 3 || start + 1 >= frame.len() {
         return;
     }
@@ -275,66 +234,6 @@ fn smooth_spiky_bins_f32(frame: &mut [f32], start: usize, spike_threshold: f32, 
 
 #[inline]
 fn stabilize_aperiodicity_frame(
-    frame: &mut [f64],
-    is_voiced: bool,
-    onset_breath_factor: f64,
-    profile: QualityProfile,
-) {
-    if frame.is_empty() {
-        return;
-    }
-
-    for v in frame.iter_mut() {
-        if !v.is_finite() {
-            *v = 0.0;
-        }
-        *v = v.clamp(0.0, 1.0);
-    }
-
-    let len = frame.len();
-    if len < 8 {
-        return;
-    }
-
-    let hf_start = len * 3 / 4;
-    if hf_start >= len {
-        return;
-    }
-
-    if !is_voiced {
-        let hf = &frame[hf_start..];
-        let hf_mean = hf.iter().copied().sum::<f64>() / hf.len() as f64;
-        let hf_max = hf.iter().copied().fold(0.0_f64, f64::max);
-        let spike_amount = hf_max - hf_mean;
-
-        if spike_amount > profile.unvoiced_spike_threshold {
-            smooth_spiky_bins(
-                frame,
-                hf_start,
-                profile.unvoiced_spike_threshold,
-                profile.unvoiced_spike_blend,
-            );
-        }
-
-        let breath_floor = (profile.breath_floor_base
-            + onset_breath_factor * profile.breath_floor_onset_boost)
-            .clamp(0.0, 0.18);
-        let low_band_end = (len / 6).max(1);
-        for v in &mut frame[..low_band_end] {
-            *v = v.max(breath_floor);
-        }
-    } else {
-        let hf_cap = (profile.voiced_high_cap_base
-            - onset_breath_factor * profile.voiced_high_cap_onset_drop)
-            .clamp(0.88, 1.0);
-        for v in &mut frame[hf_start..] {
-            *v = v.min(hf_cap);
-        }
-    }
-}
-
-#[inline]
-fn stabilize_aperiodicity_frame_f32(
     frame: &mut [f32],
     is_voiced: bool,
     onset_breath_factor: f32,
@@ -367,25 +266,25 @@ fn stabilize_aperiodicity_frame_f32(
         let hf_max = hf.iter().copied().fold(0.0_f32, f32::max);
         let spike_amount = hf_max - hf_mean;
 
-        if spike_amount > profile.unvoiced_spike_threshold as f32 {
-            smooth_spiky_bins_f32(
+        if spike_amount > profile.unvoiced_spike_threshold {
+            smooth_spiky_bins(
                 frame,
                 hf_start,
-                profile.unvoiced_spike_threshold as f32,
-                profile.unvoiced_spike_blend as f32,
+                profile.unvoiced_spike_threshold,
+                profile.unvoiced_spike_blend,
             );
         }
 
-        let breath_floor = ((profile.breath_floor_base as f32)
-            + onset_breath_factor * profile.breath_floor_onset_boost as f32)
+        let breath_floor = (profile.breath_floor_base
+            + onset_breath_factor * profile.breath_floor_onset_boost)
             .clamp(0.0, 0.18);
         let low_band_end = (len / 6).max(1);
         for v in &mut frame[..low_band_end] {
             *v = v.max(breath_floor);
         }
     } else {
-        let hf_cap = ((profile.voiced_high_cap_base as f32)
-            - onset_breath_factor * profile.voiced_high_cap_onset_drop as f32)
+        let hf_cap = (profile.voiced_high_cap_base
+            - onset_breath_factor * profile.voiced_high_cap_onset_drop)
             .clamp(0.88, 1.0);
         for v in &mut frame[hf_start..] {
             *v = v.min(hf_cap);
@@ -395,10 +294,10 @@ fn stabilize_aperiodicity_frame_f32(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
-unsafe fn apply_aperiodicity_frame_avx2_f32(
+unsafe fn apply_aperiodicity_frame_avx2(
     frame: &mut [f32],
     is_voiced: bool,
-    params: CpuAperiodicityParamsF32,
+    params: CpuAperiodicityParams,
 ) {
     let h_factor = params.h_factor;
     let c_factor = params.c_factor;
@@ -458,75 +357,32 @@ unsafe fn apply_aperiodicity_frame_avx2_f32(
     }
 
     if i < len {
-        apply_aperiodicity_frame_scalar_f32(&mut frame[i..], is_voiced, params);
+        apply_aperiodicity_frame_scalar(&mut frame[i..], is_voiced, params);
     }
 }
 
 #[inline]
-fn apply_aperiodicity_frame_f32(
+fn apply_aperiodicity_frame(
     frame: &mut [f32],
     is_voiced: bool,
-    params: CpuAperiodicityParamsF32,
+    params: CpuAperiodicityParams,
     use_simd: bool,
 ) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if use_simd {
             unsafe {
-                apply_aperiodicity_frame_avx2_f32(frame, is_voiced, params);
+                apply_aperiodicity_frame_avx2(frame, is_voiced, params);
             }
             return;
         }
     }
 
-    apply_aperiodicity_frame_scalar_f32(frame, is_voiced, params);
-}
-
-#[inline]
-fn apply_aperiodicity_frame_simd_f32_with_scratch(
-    frame: &mut [f64],
-    is_voiced: bool,
-    params: CpuAperiodicityParams,
-    scratch: &mut Vec<f32>,
-) {
-    if scratch.len() < frame.len() {
-        scratch.resize(frame.len(), 0.0);
-    }
-    let buf = &mut scratch[..frame.len()];
-    for (dst, src) in buf.iter_mut().zip(frame.iter()) {
-        *dst = *src as f32;
-    }
-
-    apply_aperiodicity_frame_f32(buf, is_voiced, params.to_f32(), true);
-
-    for (dst, src) in frame.iter_mut().zip(buf.iter()) {
-        *dst = *src as f64;
-    }
+    apply_aperiodicity_frame_scalar(frame, is_voiced, params);
 }
 
 #[derive(Clone, Copy)]
 struct CpuAperiodicityParams {
-    h_factor: f64,
-    c_factor: f64,
-    breathiness_factor: f64,
-    b_scale: f64,
-    onset_breath_factor: f64,
-}
-
-impl CpuAperiodicityParams {
-    fn to_f32(self) -> CpuAperiodicityParamsF32 {
-        CpuAperiodicityParamsF32 {
-            h_factor: self.h_factor as f32,
-            c_factor: self.c_factor as f32,
-            breathiness_factor: self.breathiness_factor as f32,
-            b_scale: self.b_scale as f32,
-            onset_breath_factor: self.onset_breath_factor as f32,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct CpuAperiodicityParamsF32 {
     h_factor: f32,
     c_factor: f32,
     breathiness_factor: f32,
@@ -612,7 +468,7 @@ pub struct WarpLut {
 }
 
 thread_local! {
-    static WARP_APPLY_SCRATCH: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
+    static WARP_APPLY_SCRATCH: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -627,23 +483,23 @@ thread_local! {
 }
 
 impl WarpLut {
-    pub fn new(len: usize, fs: f64, factor: f64) -> Self {
-        let df = fs / ((len - 1) as f64 * 2.0);
-        let last = (len - 1) as f64;
+    pub fn new(len: usize, fs: f32, factor: f32) -> Self {
+        let df = fs / ((len - 1) as f32 * 2.0);
+        let last = (len - 1) as f32;
         let df_recip = 1.0 / df;
-        const MEL_SCALE: f64 = 2595.0 / std::f64::consts::LN_10;
-        const MEL_SCALE_INV: f64 = std::f64::consts::LN_10 / 2595.0;
-        const INV_700: f64 = 1.0 / 700.0;
+        let mel_scale = 2595.0 / std::f32::consts::LN_10;
+        let mel_scale_inv = std::f32::consts::LN_10 / 2595.0;
+        const INV_700: f32 = 1.0 / 700.0;
 
         let mut idx_floor = Vec::with_capacity(len);
         let mut frac = Vec::with_capacity(len);
         let mut clamped = Vec::with_capacity(len);
 
         for i in 0..len {
-            let f_dst = i as f64 * df;
-            let m_dst = MEL_SCALE * (1.0 + f_dst * INV_700).ln();
+            let f_dst = i as f32 * df;
+            let m_dst = mel_scale * (1.0 + f_dst * INV_700).ln();
             let m_src = m_dst * factor;
-            let f_src = 700.0 * (m_src * MEL_SCALE_INV).exp_m1();
+            let f_src = 700.0 * (m_src * mel_scale_inv).exp_m1();
             let src_idx = f_src * df_recip;
 
             if src_idx >= last {
@@ -653,7 +509,7 @@ impl WarpLut {
             } else {
                 let fl = src_idx as usize;
                 idx_floor.push(fl);
-                frac.push((src_idx - fl as f64) as f32);
+                frac.push(src_idx - fl as f32);
                 clamped.push(0);
             }
         }
@@ -665,9 +521,9 @@ impl WarpLut {
         }
     }
 
-    pub fn cached(len: usize, fs: f64, factor: f64) -> Rc<Self> {
+    pub fn cached(len: usize, fs: f32, factor: f32) -> Rc<Self> {
         #[inline]
-        fn factor_bucket(factor: f64) -> i32 {
+        fn factor_bucket(factor: f32) -> i32 {
             (factor * 500.0).round() as i32
         }
 
@@ -697,15 +553,15 @@ impl WarpLut {
     }
 
     #[inline]
-    pub fn apply(&self, in_out: &mut Vec<f64>) {
+    pub fn apply(&self, in_out: &mut [f32]) {
         WARP_APPLY_SCRATCH.with(|scratch| {
             let mut scratch = scratch.borrow_mut();
-            self.apply_with_scratch(in_out.as_mut_slice(), &mut scratch);
+            self.apply_with_scratch(in_out, &mut scratch);
         });
     }
 
     #[inline]
-    pub fn apply_with_scratch(&self, in_out: &mut [f64], scratch: &mut Vec<f64>) {
+    pub fn apply_with_scratch(&self, in_out: &mut [f32], scratch: &mut Vec<f32>) {
         scratch.clear();
         scratch.extend_from_slice(in_out);
 
@@ -716,7 +572,7 @@ impl WarpLut {
                 *v = last_val;
             } else {
                 let fl = self.idx_floor[i];
-                let t = self.frac[i] as f64;
+                let t = self.frac[i];
                 *v = scratch[fl] * (1.0 - t) + scratch[fl + 1] * t;
             }
         }
@@ -724,24 +580,24 @@ impl WarpLut {
 }
 
 #[inline]
-pub fn apply_warp_cpu_batch(frames: &mut [Vec<f64>], lut: &WarpLut) {
+pub fn apply_warp_cpu_batch(frames: &mut [f32], rows: usize, cols: usize, lut: &WarpLut) {
     const PAR_THRESHOLD: usize = 2048;
 
-    if frames.len() < PAR_THRESHOLD {
+    if rows < PAR_THRESHOLD {
         let mut scratch = Vec::new();
-        for frame in frames.iter_mut() {
-            lut.apply_with_scratch(frame.as_mut_slice(), &mut scratch);
+        for frame in frames.chunks_mut(cols) {
+            lut.apply_with_scratch(frame, &mut scratch);
         }
     } else {
         frames
-            .par_iter_mut()
+            .par_chunks_mut(cols)
             .for_each_init(Vec::new, |scratch, frame| {
-                lut.apply_with_scratch(frame.as_mut_slice(), scratch);
+                lut.apply_with_scratch(frame, scratch);
             });
     }
 }
 
-pub fn warp_spectrum(sp: &mut Vec<f64>, fs: f64, factor: f64) {
+pub fn warp_spectrum(sp: &mut [f32], fs: f32, factor: f32) {
     if (factor - 1.0).abs() < 0.001 {
         return;
     }
@@ -750,7 +606,7 @@ pub fn warp_spectrum(sp: &mut Vec<f64>, fs: f64, factor: f64) {
 }
 
 #[inline]
-pub fn apply_warp_with_backend(sp: &mut Vec<f64>, lut: &WarpLut, backend: WarpBackend) {
+pub fn apply_warp_with_backend(sp: &mut [f32], lut: &WarpLut, backend: WarpBackend) {
     match backend {
         WarpBackend::Cpu => lut.apply(sp),
         WarpBackend::Gpu => lut.apply(sp),
@@ -759,27 +615,36 @@ pub fn apply_warp_with_backend(sp: &mut Vec<f64>, lut: &WarpLut, backend: WarpBa
 
 #[inline]
 pub fn try_apply_warp_batch_with_backend(
-    frames: &mut [Vec<f64>],
+    frames: &mut [f32],
+    rows: usize,
+    cols: usize,
     lut: &WarpLut,
     backend: WarpBackend,
 ) -> Result<(), String> {
     match backend {
         WarpBackend::Cpu => {
-            apply_warp_cpu_batch(frames, lut);
+            apply_warp_cpu_batch(frames, rows, cols, lut);
             Ok(())
         }
-        WarpBackend::Gpu => try_apply_warp_gpu_batch(frames, lut),
+        WarpBackend::Gpu => try_apply_warp_gpu_batch(frames, rows, cols, lut),
     }
 }
 
-pub fn try_apply_warp_gpu_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(), String> {
+pub fn try_apply_warp_gpu_batch(
+    frames: &mut [f32],
+    rows: usize,
+    cols: usize,
+    lut: &WarpLut,
+) -> Result<(), String> {
     #[cfg(feature = "gpu-warp")]
     {
-        pollster::block_on(run_wgpu_warp_batch(frames, lut))
+        pollster::block_on(run_wgpu_warp_batch(frames, rows, cols, lut))
     }
     #[cfg(not(feature = "gpu-warp"))]
     {
         let _ = frames;
+        let _ = rows;
+        let _ = cols;
         let _ = lut;
         Err("gpu-warp feature is disabled at build time".to_string())
     }
@@ -787,229 +652,170 @@ pub fn try_apply_warp_gpu_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Resul
 
 #[allow(clippy::too_many_arguments)]
 pub fn apply_aperiodicity_cpu_batch(
-    ap_render: &mut [Vec<f64>],
+    ap_render: &mut [f32],
+    rows: usize,
+    cols: usize,
     vuv_render: &[u8],
     onset_fadein_frames: usize,
-    h_factor: f64,
-    c_factor: f64,
-    breathiness_factor: f64,
-    b_scale: f64,
+    h_factor: f32,
+    c_factor: f32,
+    breathiness_factor: f32,
+    b_scale: f32,
     quality_profile: QualityProfile,
 ) {
-    const ONSET_BREATH_MAX: f64 = 0.6;
-    const SIMD_F32_CONVERT_MIN_BINS: usize = 512;
+    const ONSET_BREATH_MAX: f32 = 0.6;
 
     let onset_recip = if onset_fadein_frames > 0 {
-        1.0 / onset_fadein_frames as f64
+        1.0 / onset_fadein_frames as f32
     } else {
         0.0
     };
+    let onset_scale = if rows < 24 {
+        quality_profile.short_note_onset_scale
+    } else {
+        1.0
+    };
 
     #[inline]
-    fn onset_breath_factor_at(index: usize, onset_fadein_frames: usize, onset_recip: f64) -> f64 {
+    fn onset_breath_factor_at(
+        index: usize,
+        onset_fadein_frames: usize,
+        onset_recip: f32,
+        onset_scale: f32,
+    ) -> f32 {
         if onset_fadein_frames > 0 && index < onset_fadein_frames {
-            let progress = index as f64 * onset_recip;
-            (1.0 - (1.0 - (progress * std::f64::consts::PI).cos()) * 0.5) * ONSET_BREATH_MAX
+            let progress = index as f32 * onset_recip;
+            (1.0 - (1.0 - (progress * std::f32::consts::PI).cos()) * 0.5)
+                * ONSET_BREATH_MAX
+                * onset_scale
         } else {
             0.0
         }
     }
 
-    #[inline]
-    fn params_for_frame(
-        index: usize,
-        onset_fadein_frames: usize,
-        onset_recip: f64,
-        h_factor: f64,
-        c_factor: f64,
-        breathiness_factor: f64,
-        b_scale: f64,
-    ) -> CpuAperiodicityParams {
-        CpuAperiodicityParams {
-            h_factor,
-            c_factor,
-            breathiness_factor,
-            b_scale,
-            onset_breath_factor: onset_breath_factor_at(index, onset_fadein_frames, onset_recip),
-        }
-    }
-
     let use_simd = ap_simd_enabled();
 
-    if use_simd && !ap_render.is_empty() {
-        let bins = ap_render[0].len();
-        let homogeneous = bins >= SIMD_F32_CONVERT_MIN_BINS
-            && ap_render.iter().all(|f| f.len() == bins)
-            && bins > 0;
-
-        if homogeneous {
-            let frame_count = ap_render.len();
-            let mut flat = Vec::with_capacity(frame_count * bins);
-            for frame in ap_render.iter() {
-                flat.extend(frame.iter().map(|&v| v as f32));
-            }
-
-            let onset: Vec<f32> = (0..frame_count)
-                .map(|i| onset_breath_factor_at(i, onset_fadein_frames, onset_recip) as f32)
-                .collect();
-
-            const PAR_THRESHOLD: usize = 2048;
-            if frame_count < PAR_THRESHOLD {
-                for (i, chunk) in flat.chunks_mut(bins).enumerate() {
-                    let params_f32 = CpuAperiodicityParamsF32 {
-                        h_factor: h_factor as f32,
-                        c_factor: c_factor as f32,
-                        breathiness_factor: breathiness_factor as f32,
-                        b_scale: b_scale as f32,
-                        onset_breath_factor: onset[i],
-                    };
-                    let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
-                    apply_aperiodicity_frame_f32(chunk, is_voiced, params_f32, true);
-                    stabilize_aperiodicity_frame_f32(chunk, is_voiced, onset[i], quality_profile);
-                }
-            } else {
-                flat.par_chunks_mut(bins)
-                    .enumerate()
-                    .for_each(|(i, chunk)| {
-                        let params_f32 = CpuAperiodicityParamsF32 {
-                            h_factor: h_factor as f32,
-                            c_factor: c_factor as f32,
-                            breathiness_factor: breathiness_factor as f32,
-                            b_scale: b_scale as f32,
-                            onset_breath_factor: onset[i],
-                        };
-                        let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
-                        apply_aperiodicity_frame_f32(chunk, is_voiced, params_f32, true);
-                        stabilize_aperiodicity_frame_f32(
-                            chunk,
-                            is_voiced,
-                            onset[i],
-                            quality_profile,
-                        );
-                    });
-            }
-
-            for (frame, chunk) in ap_render
-                .iter_mut()
-                .zip(flat.chunks_exact(bins))
-            {
-                for (dst, &src) in frame.iter_mut().zip(chunk.iter()) {
-                    *dst = src as f64;
-                }
-            }
-            return;
-        }
-    }
-
     const PAR_THRESHOLD: usize = 2048;
-    if ap_render.len() < PAR_THRESHOLD {
-        let mut scratch_f32 = Vec::new();
-        for (i, frame) in ap_render.iter_mut().enumerate() {
-            let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
-            let params = params_for_frame(
-                i,
-                onset_fadein_frames,
-                onset_recip,
+    if rows < PAR_THRESHOLD {
+        for (i, chunk) in ap_render.chunks_mut(cols).enumerate() {
+            let onset_breath_factor =
+                onset_breath_factor_at(i, onset_fadein_frames, onset_recip, onset_scale);
+            let params = CpuAperiodicityParams {
                 h_factor,
                 c_factor,
                 breathiness_factor,
                 b_scale,
-            );
-
-            if use_simd && frame.len() >= SIMD_F32_CONVERT_MIN_BINS {
-                apply_aperiodicity_frame_simd_f32_with_scratch(
-                    frame.as_mut_slice(),
-                    is_voiced,
-                    params,
-                    &mut scratch_f32,
-                );
-                stabilize_aperiodicity_frame(
-                    frame.as_mut_slice(),
-                    is_voiced,
-                    params.onset_breath_factor,
-                    quality_profile,
-                );
-            } else {
-                apply_aperiodicity_frame_scalar(frame.as_mut_slice(), is_voiced, params);
-            }
+                onset_breath_factor,
+            };
+            let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
+            apply_aperiodicity_frame(chunk, is_voiced, params, use_simd);
+            stabilize_aperiodicity_frame(chunk, is_voiced, onset_breath_factor, quality_profile);
         }
-    } else if use_simd {
-        ap_render.par_iter_mut().enumerate().for_each_init(
-            Vec::new,
-            |scratch_f32: &mut Vec<f32>, (i, frame)| {
-                let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
-                let params = params_for_frame(
-                    i,
-                    onset_fadein_frames,
-                    onset_recip,
+    } else {
+        ap_render
+            .par_chunks_mut(cols)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let onset_breath_factor =
+                    onset_breath_factor_at(i, onset_fadein_frames, onset_recip, onset_scale);
+                let params = CpuAperiodicityParams {
                     h_factor,
                     c_factor,
                     breathiness_factor,
                     b_scale,
+                    onset_breath_factor,
+                };
+                let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
+                apply_aperiodicity_frame(chunk, is_voiced, params, use_simd);
+                stabilize_aperiodicity_frame(
+                    chunk,
+                    is_voiced,
+                    onset_breath_factor,
+                    quality_profile,
                 );
+            });
+    }
 
-                if frame.len() >= SIMD_F32_CONVERT_MIN_BINS {
-                    apply_aperiodicity_frame_simd_f32_with_scratch(
-                        frame.as_mut_slice(),
-                        is_voiced,
-                        params,
-                        scratch_f32,
-                    );
-                    stabilize_aperiodicity_frame(
-                        frame.as_mut_slice(),
-                        is_voiced,
-                        params.onset_breath_factor,
-                        quality_profile,
-                    );
-                } else {
-                    apply_aperiodicity_frame_scalar(frame.as_mut_slice(), is_voiced, params);
-                }
-            },
-        );
-    } else {
-        ap_render.par_iter_mut().enumerate().for_each(|(i, frame)| {
-            let is_voiced = vuv_render.get(i).copied().unwrap_or(0) != 0;
-            let params = params_for_frame(
-                i,
-                onset_fadein_frames,
-                onset_recip,
-                h_factor,
-                c_factor,
-                breathiness_factor,
-                b_scale,
-            );
+    smooth_aperiodicity_temporal(ap_render, rows, cols, vuv_render, quality_profile);
+}
 
-            apply_aperiodicity_frame_scalar(frame.as_mut_slice(), is_voiced, params);
-        });
+fn smooth_aperiodicity_temporal(
+    ap_render: &mut [f32],
+    rows: usize,
+    cols: usize,
+    vuv_render: &[u8],
+    quality_profile: QualityProfile,
+) {
+    let alpha_unvoiced = quality_profile.temporal_ap_smoothing.clamp(0.0, 0.45);
+    let alpha_voiced = quality_profile
+        .voiced_temporal_ap_smoothing
+        .clamp(0.0, 0.25);
+    if (alpha_unvoiced <= 0.0 && alpha_voiced <= 0.0)
+        || rows < 3
+        || cols < 8
+        || ap_render.len() < rows.saturating_mul(cols)
+    {
+        return;
+    }
+
+    let original = ap_render.to_vec();
+    let high_start = cols * 3 / 4;
+    for r in 1..(rows - 1) {
+        let is_unvoiced_region = vuv_render.get(r).copied().unwrap_or(0) == 0
+            || vuv_render.get(r - 1).copied().unwrap_or(0) == 0
+            || vuv_render.get(r + 1).copied().unwrap_or(0) == 0;
+        let alpha = if is_unvoiced_region {
+            alpha_unvoiced
+        } else {
+            alpha_voiced
+        };
+        if alpha <= 0.0 {
+            continue;
+        }
+
+        let prev = (r - 1) * cols;
+        let cur = r * cols;
+        let next = (r + 1) * cols;
+        for d in high_start..cols {
+            let neighbor_avg = 0.5 * (original[prev + d] + original[next + d]);
+            ap_render[cur + d] =
+                (original[cur + d] * (1.0 - alpha) + neighbor_avg * alpha).clamp(0.0, 1.0);
+        }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn try_apply_aperiodicity_gpu_batch(
-    ap_render: &mut [Vec<f64>],
+    ap_render: &mut [f32],
+    rows: usize,
+    cols: usize,
     vuv_render: &[u8],
     onset_fadein_frames: usize,
-    h_factor: f64,
-    c_factor: f64,
-    breathiness_factor: f64,
-    b_scale: f64,
+    h_factor: f32,
+    c_factor: f32,
+    breathiness_factor: f32,
+    b_scale: f32,
     _quality_profile: QualityProfile,
 ) -> Result<(), String> {
     #[cfg(feature = "gpu-warp")]
     {
         pollster::block_on(run_wgpu_aperiodicity_batch(
             ap_render,
+            rows,
+            cols,
             vuv_render,
             onset_fadein_frames,
-            h_factor as f32,
-            c_factor as f32,
-            breathiness_factor as f32,
-            b_scale as f32,
+            h_factor,
+            c_factor,
+            breathiness_factor,
+            b_scale,
         ))
     }
     #[cfg(not(feature = "gpu-warp"))]
     {
         let _ = ap_render;
+        let _ = rows;
+        let _ = cols;
         let _ = vuv_render;
         let _ = onset_fadein_frames;
         let _ = h_factor;
@@ -1113,7 +919,6 @@ fn allocate_gpu_buffers(
         clamped_buffer,
         params_buffer,
         bind_group,
-        host_input_data: Vec::with_capacity(alloc_total),
         host_idx_floor: vec![0; bins],
         host_frac: vec![0.0; bins],
         host_clamped: vec![0; bins],
@@ -1447,7 +1252,6 @@ struct GpuWarpBufferCache {
     clamped_buffer: wgpu::Buffer,
     params_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    host_input_data: Vec<f32>,
     host_idx_floor: Vec<u32>,
     host_frac: Vec<f32>,
     host_clamped: Vec<u32>,
@@ -1465,7 +1269,6 @@ struct GpuAperiodicityBufferCache {
     vuv_buffer: wgpu::Buffer,
     params_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    host_input_data: Vec<f32>,
     host_vuv: Vec<u32>,
     chunk_readbacks: Vec<wgpu::Buffer>,
     chunk_readback_bytes: u64,
@@ -1686,7 +1489,6 @@ fn allocate_aperiodicity_gpu_buffers(
         vuv_buffer,
         params_buffer,
         bind_group,
-        host_input_data: Vec::with_capacity(alloc_total),
         host_vuv: vec![0; alloc_frames],
         chunk_readbacks: Vec::new(),
         chunk_readback_bytes: 0,
@@ -1694,8 +1496,13 @@ fn allocate_aperiodicity_gpu_buffers(
 }
 
 #[cfg(feature = "gpu-warp")]
-async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(), String> {
-    if frames.is_empty() {
+async fn run_wgpu_warp_batch(
+    frames: &mut [f32],
+    rows: usize,
+    cols: usize,
+    lut: &WarpLut,
+) -> Result<(), String> {
+    if rows == 0 {
         return Ok(());
     }
 
@@ -1704,11 +1511,11 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
         return Ok(());
     }
 
-    if frames.iter().any(|f| f.len() != bins) {
+    if cols != bins {
         return Err("inconsistent spectrum frame length for gpu warp".to_string());
     }
 
-    let frame_count = frames.len();
+    let frame_count = rows;
     let ctx = get_or_init_gpu_context()?;
     let device = &ctx.device;
     let queue = &ctx.queue;
@@ -1814,12 +1621,8 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
         let readback_idx = submit_index % inflight;
         submit_index = submit_index.wrapping_add(1);
 
-        bufs.host_input_data.clear();
-        for frame in frames[chunk_start..chunk_end].iter() {
-            bufs.host_input_data.extend(frame.iter().map(|&v| v as f32));
-        }
-
-        let input_bytes = bytemuck::cast_slice(&bufs.host_input_data);
+        let chunk_data = &frames[chunk_start * bins..chunk_end * bins];
+        let input_bytes = bytemuck::cast_slice(chunk_data);
         queue.write_buffer(&bufs.input_buffer, 0, input_bytes);
 
         let params = WarpParams {
@@ -1897,14 +1700,7 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
                 }
                 let start = p.chunk_start;
                 let end = p.chunk_start + p.chunk_len;
-                frames[start..end]
-                    .iter_mut()
-                    .zip(output.chunks_exact(bins))
-                    .for_each(|(frame, chunk)| {
-                        for i in 0..bins {
-                            frame[i] = chunk[i] as f64;
-                        }
-                    });
+                frames[start * bins..end * bins].copy_from_slice(output);
             }
             bufs.chunk_readbacks[p.readback_idx].unmap();
         }
@@ -1937,14 +1733,7 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
             }
             let start = p.chunk_start;
             let end = p.chunk_start + p.chunk_len;
-            frames[start..end]
-                .iter_mut()
-                .zip(output.chunks_exact(bins))
-                .for_each(|(frame, chunk)| {
-                    for i in 0..bins {
-                        frame[i] = chunk[i] as f64;
-                    }
-                });
+            frames[start * bins..end * bins].copy_from_slice(output);
         }
         bufs.chunk_readbacks[p.readback_idx].unmap();
     }
@@ -1954,8 +1743,11 @@ async fn run_wgpu_warp_batch(frames: &mut [Vec<f64>], lut: &WarpLut) -> Result<(
 }
 
 #[cfg(feature = "gpu-warp")]
+#[allow(clippy::too_many_arguments)]
 async fn run_wgpu_aperiodicity_batch(
-    ap_render: &mut [Vec<f64>],
+    ap_render: &mut [f32],
+    rows: usize,
+    cols: usize,
     vuv_render: &[u8],
     onset_fadein_frames: usize,
     h_factor: f32,
@@ -1963,23 +1755,20 @@ async fn run_wgpu_aperiodicity_batch(
     breathiness_factor: f32,
     b_scale: f32,
 ) -> Result<(), String> {
-    if ap_render.is_empty() {
+    if rows == 0 {
         return Ok(());
     }
 
-    let bins = ap_render[0].len();
+    let bins = cols;
     if bins == 0 {
         return Ok(());
     }
 
-    if ap_render.iter().any(|f| f.len() != bins) {
-        return Err("inconsistent aperiodicity frame length for gpu path".to_string());
-    }
-    if vuv_render.len() < ap_render.len() {
+    if vuv_render.len() < rows {
         return Err("vuv_render length is smaller than ap_render length".to_string());
     }
 
-    let frame_count = ap_render.len();
+    let frame_count = rows;
     let ctx = get_or_init_gpu_context()?;
     let device = &ctx.device;
     let queue = &ctx.queue;
@@ -2052,17 +1841,13 @@ async fn run_wgpu_aperiodicity_batch(
         let readback_idx = submit_index % inflight;
         submit_index = submit_index.wrapping_add(1);
 
-        bufs.host_input_data.clear();
-        for frame in ap_render[chunk_start..chunk_end].iter() {
-            bufs.host_input_data.extend(frame.iter().map(|&v| v as f32));
-        }
+        let chunk_data = &ap_render[chunk_start * bins..chunk_end * bins];
+        let input_bytes = bytemuck::cast_slice(chunk_data);
+        queue.write_buffer(&bufs.input_buffer, 0, input_bytes);
 
         for (i, &is_voiced) in vuv_render[chunk_start..chunk_end].iter().enumerate() {
             bufs.host_vuv[i] = is_voiced as u32;
         }
-
-        let input_bytes = bytemuck::cast_slice(&bufs.host_input_data);
-        queue.write_buffer(&bufs.input_buffer, 0, input_bytes);
         queue.write_buffer(
             &bufs.vuv_buffer,
             0,
@@ -2149,14 +1934,7 @@ async fn run_wgpu_aperiodicity_batch(
 
                 let start = p.chunk_start;
                 let end = p.chunk_start + p.chunk_len;
-                ap_render[start..end]
-                    .iter_mut()
-                    .zip(output.chunks_exact(bins))
-                    .for_each(|(frame, chunk)| {
-                        for i in 0..bins {
-                            frame[i] = chunk[i] as f64;
-                        }
-                    });
+                ap_render[start * bins..end * bins].copy_from_slice(output);
             }
             bufs.chunk_readbacks[p.readback_idx].unmap();
         }
@@ -2190,14 +1968,7 @@ async fn run_wgpu_aperiodicity_batch(
 
             let start = p.chunk_start;
             let end = p.chunk_start + p.chunk_len;
-            ap_render[start..end]
-                .iter_mut()
-                .zip(output.chunks_exact(bins))
-                .for_each(|(frame, chunk)| {
-                    for i in 0..bins {
-                        frame[i] = chunk[i] as f64;
-                    }
-                });
+            ap_render[start * bins..end * bins].copy_from_slice(output);
         }
         bufs.chunk_readbacks[p.readback_idx].unmap();
     }
@@ -2210,16 +1981,7 @@ async fn run_wgpu_aperiodicity_batch(
 mod tests {
     use super::*;
 
-    fn make_frame(len: usize, seed: f64) -> Vec<f64> {
-        (0..len)
-            .map(|i| {
-                let x = (i as f64 * 0.17 + seed).sin() * 0.5 + 0.5;
-                x.clamp(0.0, 1.0)
-            })
-            .collect()
-    }
-
-    fn make_frame_f32(len: usize, seed: f32) -> Vec<f32> {
+    fn make_frame(len: usize, seed: f32) -> Vec<f32> {
         (0..len)
             .map(|i| {
                 let x = (i as f32 * 0.17 + seed).sin() * 0.5 + 0.5;
@@ -2254,10 +2016,10 @@ mod tests {
             return;
         }
 
-        let mut scalar = make_frame_f32(1027, 0.9);
+        let mut scalar = make_frame(1027, 0.9);
         let mut simd = scalar.clone();
 
-        let params = CpuAperiodicityParamsF32 {
+        let params = CpuAperiodicityParams {
             h_factor: 0.2,
             c_factor: 0.25,
             breathiness_factor: -0.12,
@@ -2265,9 +2027,9 @@ mod tests {
             onset_breath_factor: 0.37,
         };
 
-        apply_aperiodicity_frame_scalar_f32(&mut scalar, false, params);
+        apply_aperiodicity_frame_scalar(&mut scalar, false, params);
         unsafe {
-            apply_aperiodicity_frame_avx2_f32(&mut simd, false, params);
+            apply_aperiodicity_frame_avx2(&mut simd, false, params);
         }
 
         for (a, b) in scalar.iter().zip(simd.iter()) {
@@ -2304,10 +2066,42 @@ mod tests {
     }
 
     #[test]
+    fn temporal_aperiodicity_smoothing_reduces_unvoiced_high_band_flicker() {
+        let rows = 3;
+        let cols = 16;
+        let mut ap = vec![0.2; rows * cols];
+        ap[cols + 14] = 1.0;
+        let vuv = vec![0, 0, 0];
+        let profile = QualityProfile::from_preset(crate::config::QualityPreset::Balanced);
+
+        smooth_aperiodicity_temporal(&mut ap, rows, cols, &vuv, profile);
+
+        assert!(ap[cols + 14] < 1.0);
+        assert_eq!(ap[cols + 2], 0.2);
+    }
+
+    #[test]
+    fn temporal_aperiodicity_smoothing_reduces_voiced_high_band_flicker() {
+        let rows = 3;
+        let cols = 16;
+        let mut ap = vec![0.2; rows * cols];
+        ap[cols + 14] = 1.0;
+        let vuv = vec![1, 1, 1];
+        let profile = QualityProfile::from_preset(crate::config::QualityPreset::Balanced);
+
+        smooth_aperiodicity_temporal(&mut ap, rows, cols, &vuv, profile);
+
+        assert!(ap[cols + 14] < 1.0);
+        assert_eq!(ap[cols + 2], 0.2);
+    }
+
+    #[test]
     fn classic_profile_preserves_legacy_behavior_knobs() {
         let classic = QualityProfile::from_preset(crate::config::QualityPreset::Classic);
         assert_eq!(classic.high_pitch_warp_relax, 0.0);
         assert_eq!(classic.presence_max_gain, 0.0);
         assert_eq!(classic.unvoiced_spike_blend, 0.0);
+        assert_eq!(classic.temporal_ap_smoothing, 0.0);
+        assert_eq!(classic.voiced_temporal_ap_smoothing, 0.0);
     }
 }
