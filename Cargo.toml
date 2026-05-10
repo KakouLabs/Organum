@@ -17,7 +17,7 @@ bytemuck = { version = "1.16", features = ["derive"] }
 
 [package]
 name = "organum"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/KakouLabs/Organum"
